@@ -50,3 +50,35 @@ type Entry struct {
 func (e *Entry) ModSeq() int64 {
 	return e.At.UnixMicro()
 }
+
+func NewMessage(type_ string, accountID, folderID, messageID ulid.ULID, msg *MessageEntry) *Entry {
+	return &Entry{
+		At:        time.Now(),
+		Type:      Type(type_),
+		AccountID: accountID,
+		FolderID:  folderID,
+		MessageID: messageID,
+		Metadata:  metadata.New(),
+		Message:   msg,
+	}
+}
+
+func NewFolder(type_ string, accountID, folderID ulid.ULID, folder *FolderEntry) *Entry {
+	return &Entry{
+		At:        time.Now(),
+		Type:      Type(type_),
+		AccountID: accountID,
+		FolderID:  folderID,
+		Metadata:  metadata.New(),
+		Folder:    folder,
+	}
+}
+
+func NewAccount(type_ string, accountID ulid.ULID, acct *AccountEntry) *Entry {
+	return &Entry{
+		At:        time.Now(),
+		Type:      Type(type_),
+		AccountID: accountID,
+		Account:   acct,
+	}
+}

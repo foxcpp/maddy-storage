@@ -414,25 +414,34 @@ func (r repo) DeleteTree(ctx context.Context, accountID ulid.ULID, root string) 
 	return ids, err
 }
 
-func (r repo) NextUID(ctx context.Context, folderID ulid.ULID, n int) (uint32, error) {
+func (r repo) NextUID(ctx context.Context, folderID ulid.ULID, n int) ([]uint32, error) {
 	defer trace.StartRegion(ctx, "folder.Repository.NextUID").End()
 
+	if n <= 0 {
+		panic("n must be positive")
+	}
+
 	// For SQLite, we store uidnext variable in the folder value.
-	var val uint32
+	var lastUID uint32
 
 	err := r.db.Gorm(ctx).Raw(`
 		UPDATE folders 
 		SET uidnext = uidnext + ?
 		WHERE folders.id = ?
-		RETURNING uidnext - 1`, n, folderID).Scan(&val).Error
+		RETURNING uidnext - 1`, n, folderID).Scan(&lastUID).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, folder.ErrNotFound
+			return nil, folder.ErrNotFound
 		}
-		return 0, storeerrors.InternalError{Reason: err}
+		return nil, storeerrors.InternalError{Reason: err}
 	}
 
-	return val, nil
+	uids := make([]uint32, n)
+	for i := lastUID - uint32(n) + 1; i <= lastUID; i++ {
+		uids[i] = i
+	}
+
+	return uids, nil
 }
 
 func (r repo) CreateEntry(ctx context.Context, entry ...folder.Entry) error {
@@ -445,11 +454,41 @@ func (r repo) CreateEntry(ctx context.Context, entry ...folder.Entry) error {
 
 	err := r.db.Gorm(ctx).Create(dtos).Error
 	if err != nil {
+		var sqlErr sqlite3.Error
+		if errors.As(err, &sqlErr) && errors.Is(sqlErr.ExtendedCode, sqlite3.ErrConstraintForeignKey) {
+			return folder.ErrDanglingEntry
+		}
+
 		// TODO: Foreign key constraints, etc.
 		return storeerrors.InternalError{Reason: err}
 	}
 
 	return nil
+}
+
+func (r repo) ReplaceEntries(ctx context.Context, old []folder.Entry, new []folder.Entry) error {
+	defer trace.StartRegion(ctx, "folder.Repository.ReplaceEntries").End()
+
+	err := r.db.Gorm(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, ent := range old {
+			err := r.db.Gorm(ctx).
+				Where("folder_entries.folder_id = ?", ent.FolderID_).
+				Where("folder_entries.msg_id = ?", ent.MsgID_).
+				Delete(&entryDTO{}).Error
+			if err != nil {
+				return err
+			}
+		}
+		for _, ent := range new {
+			err := r.db.Gorm(ctx).Create(entryAsDTO(&ent)).Error
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	return err
 }
 
 func (r repo) GetEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ranges ...folder.UIDRange) ([]folder.Entry, error) {
@@ -583,4 +622,11 @@ func (r repo) DeleteEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ran
 
 		return nil
 	}
+}
+
+func (r repo) Tx(ctx context.Context, readOnly bool, f func(r folder.Repo) error) error {
+	return r.db.Tx(ctx, readOnly, func(tx sqlite.DB) error {
+		txRepo := repo{db: tx}
+		return f(txRepo)
+	})
 }

@@ -2,6 +2,7 @@ package folder
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -10,14 +11,20 @@ import (
 )
 
 var (
-	ErrNotFound      = storeerrors.NotExistsError{Text: "no such folder"}
-	ErrAlreadyExists = storeerrors.AlreadyExistsError{Text: "folder with such name already exists"}
-	ErrEntryNotFound = storeerrors.NotExistsError{Text: "no such folder entry"}
+	ErrNotFound           = storeerrors.NotExistsError{Text: "no such folder"}
+	ErrAlreadyExists      = storeerrors.AlreadyExistsError{Text: "folder with such name already exists"}
+	ErrEntryNotFound      = storeerrors.NotExistsError{Text: "no such folder entry"}
+	ErrEntryAlreadyExists = storeerrors.AlreadyExistsError{Text: "folder entry already exists"}
+	ErrDanglingEntry      = storeerrors.NotExistsError{Text: "folder entry refers to non-existing message or folder"}
 )
 
 type UIDRange struct {
-	Since int32
-	Until int32
+	Since uint32
+	Until uint32
+}
+
+func (r UIDRange) String() string {
+	return fmt.Sprintf("%d:%d", r.Since, r.Until)
 }
 
 type Filter struct {
@@ -85,9 +92,12 @@ type Repo interface {
 	RenameTree(ctx context.Context, accountID ulid.ULID, root, newRoot string) ([]RenamedFolder, error)
 	DeleteTree(ctx context.Context, accountID ulid.ULID, root string) ([]DeletedFolder, error)
 
-	NextUID(ctx context.Context, folderID ulid.ULID, n int) (uint32, error)
+	NextUID(ctx context.Context, folderID ulid.ULID, n int) ([]uint32, error)
 	CountEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ranges ...UIDRange) (int, error)
 	GetEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ranges ...UIDRange) ([]Entry, error)
 	CreateEntry(ctx context.Context, entry ...Entry) error
+	ReplaceEntries(ctx context.Context, old []Entry, new []Entry) error
 	DeleteEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ranges ...UIDRange) error
+
+	Tx(ctx context.Context, readOnly bool, f func(r Repo) error) error
 }

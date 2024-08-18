@@ -71,6 +71,15 @@ func (s *session) Rename(mailbox, newName string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Rename")
 	defer task.End()
 
+	if strings.EqualFold(mailbox, "INBOX") {
+		// TODO: Implement "move everything from INBOX" behavior.
+		return &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: imap.ResponseCodeServerBug,
+			Text: "INBOX cannot be renamed",
+		}
+	}
+
 	_, err := s.b.folders.Rename(ctx, s.accountID, mailbox, newName)
 	return s.asIMAPError(err)
 }

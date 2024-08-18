@@ -39,6 +39,14 @@ func New(path string, cfg Cfg) (DB, error) {
 	return ret, nil
 }
 
+func (db DB) Tx(ctx context.Context, readOnly bool, fn func(tx DB) error) error {
+	return db.Gorm(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(DB{db: tx})
+	}, &sql.TxOptions{
+		ReadOnly: readOnly,
+	})
+}
+
 func (db DB) Gorm(ctx context.Context) *gorm.DB {
 	return db.db.WithContext(ctx)
 }

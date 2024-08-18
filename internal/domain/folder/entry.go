@@ -1,6 +1,10 @@
 package folder
 
-import "github.com/oklog/ulid/v2"
+import (
+	"fmt"
+
+	"github.com/oklog/ulid/v2"
+)
 
 type Entry struct {
 	FolderID_ ulid.ULID
@@ -8,9 +12,13 @@ type Entry struct {
 	UID_      uint32
 }
 
-func (e *Entry) FolderID() ulid.ULID { return e.FolderID_ }
-func (e *Entry) MsgID() ulid.ULID    { return e.MsgID_ }
-func (e *Entry) UID() uint32         { return e.UID_ }
+func (e Entry) FolderID() ulid.ULID { return e.FolderID_ }
+func (e Entry) MsgID() ulid.ULID    { return e.MsgID_ }
+func (e Entry) UID() uint32         { return e.UID_ }
+
+func (e Entry) String() string {
+	return fmt.Sprintf("{FolderID: %v, MsgID: %v, UID: %v}", e.FolderID_, e.MsgID_, e.UID_)
+}
 
 func NewEntry(folderID, msgID ulid.ULID, uid uint32) Entry {
 	return Entry{

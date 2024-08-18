@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
@@ -118,7 +119,15 @@ func (f Folder) Create(ctx context.Context, accountID ulid.ULID, path string, ro
 		var err error
 		parent, err = f.repo.GetByPath(ctx, accountID, parentPath)
 		if err != nil {
-			return nil, err
+			if !errors.Is(err, folder.ErrNotFound) {
+				return nil, err
+			}
+
+			// TODO: Limit recursion
+			parent, err = f.Create(ctx, accountID, parentPath, folder.RoleNone)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
