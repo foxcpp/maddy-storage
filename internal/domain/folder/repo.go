@@ -13,6 +13,7 @@ import (
 var (
 	ErrNotFound           = storeerrors.NotExistsError{Text: "no such folder"}
 	ErrAlreadyExists      = storeerrors.AlreadyExistsError{Text: "folder with such name already exists"}
+	ErrHasChildren        = storeerrors.LogicError{Text: "cannot delete folder while children folders exist"}
 	ErrEntryNotFound      = storeerrors.NotExistsError{Text: "no such folder entry"}
 	ErrEntryAlreadyExists = storeerrors.AlreadyExistsError{Text: "folder entry already exists"}
 	ErrDanglingEntry      = storeerrors.NotExistsError{Text: "folder entry refers to non-existing message or folder"}
@@ -89,7 +90,11 @@ type Repo interface {
 	Create(ctx context.Context, folder *Folder) error
 	Update(ctx context.Context, folder *Folder) error
 	Delete(ctx context.Context, folderID ulid.ULID) error
-	RenameTree(ctx context.Context, accountID ulid.ULID, root, newRoot string) ([]RenamedFolder, error)
+	RenameMove(
+		ctx context.Context, accountID ulid.ULID,
+		oldParent, newParent *Folder,
+		oldName, newName string,
+	) ([]RenamedFolder, error)
 	DeleteTree(ctx context.Context, accountID ulid.ULID, root string) ([]DeletedFolder, error)
 
 	NextUID(ctx context.Context, folderID ulid.ULID, n int) ([]uint32, error)

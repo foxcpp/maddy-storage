@@ -55,7 +55,7 @@ func (s *session) Delete(mailbox string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Delete")
 	defer task.End()
 
-	deleted, err := s.b.folders.Delete(ctx, s.accountID, mailbox)
+	deleted, err := s.b.folders.Delete(ctx, s.accountID, false, mailbox)
 	if err != nil {
 		return s.asIMAPError(err)
 	}

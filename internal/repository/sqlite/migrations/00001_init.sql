@@ -13,7 +13,8 @@ CREATE TABLE folders (
      id BLOB NOT NULL PRIMARY KEY,
      parent_id TEXT DEFAULT NULL
          REFERENCES folders(id)
-             ON UPDATE CASCADE ON DELETE CASCADE,
+             ON UPDATE CASCADE ON DELETE NO ACTION
+             DEFERRABLE INITIALLY DEFERRED,
      account_id TEXT NOT NULL
          REFERENCES accounts(id)
              ON UPDATE CASCADE ON DELETE CASCADE,
@@ -28,7 +29,7 @@ CREATE TABLE folders (
      uid_validity INTEGER NOT NULL DEFAULT (abs(random())),
      uid_next INTEGER NOT NULL DEFAULT 1,
 
-     meta BLOB NOT NULL DEFAULT 'x7b7d', -- {}
+     meta BLOB NOT NULL DEFAULT x'7b7d', -- {}
      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -37,7 +38,7 @@ CREATE TABLE folders (
      UNIQUE(account_id, role),
      CHECK(uid_validity > 0),
      CHECK(uid_next > 0),
-     CHECK(path LIKE '%' || name)
+     CHECK(path LIKE '%/' || name OR path = name)
 ) WITHOUT ROWID;
 
 CREATE TABLE messages (
@@ -77,7 +78,7 @@ CREATE TABLE message_parts (
         REFERENCES messages(id)
             ON UPDATE CASCADE ON DELETE CASCADE,
     path TEXT NOT NULL DEFAULT '1',
-    content BLOB NOT NULL DEFAULT 'x7b7d', -- {}
+    content BLOB NOT NULL DEFAULT x'7b7d', -- {}
     inline BLOB DEFAULT NULL,
     external_blob_id TEXT DEFAULT NULL,
 

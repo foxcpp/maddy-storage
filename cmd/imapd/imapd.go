@@ -8,6 +8,8 @@ import (
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/account"
 	accountsqlite "github.com/foxcpp/maddy-storage/internal/domain/account/repository/sqlite"
+	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
+	"github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
@@ -30,9 +32,10 @@ func main() {
 	}
 
 	var (
-		accountsRepo account.Repo
-		folderRepo   folder.Repo
-		messageRepo  message.Repo
+		accountsRepo  account.Repo
+		folderRepo    folder.Repo
+		messageRepo   message.Repo
+		changelogRepo changelog.Repo
 	)
 	if *sqliteDB != "" {
 		db, err := sqlite.New(*sqliteDB, sqlite.Cfg{})
@@ -43,6 +46,7 @@ func main() {
 		accountsRepo = accountsqlite.New(db)
 		folderRepo = foldersqlite.New(db)
 		messageRepo = messagesqlite.New(db)
+		changelogRepo := changelogsqlite.New(db)
 	}
 
 	cfg := imap2.Config{
@@ -54,9 +58,10 @@ func main() {
 
 	backend := imap2.New(
 		cfg, logger,
-		usecase.NewAccount(accountsRepo, usecase.StubAuth{}),
-		usecase.NewFolder(folderRepo),
-		usecase.NewMessage(folderRepo, messageRepo))
+		usecase.NewAccount(accountsRepo, usecase.StubAuth{}, changelogRepo),
+		usecase.NewFolder(folderRepo, changelogRepo),
+		usecase.NewMessage(folderRepo, messageRepo, changelogRepo),
+	)
 	srv := imapserver.New(backend.Options())
 	defer srv.Close()
 

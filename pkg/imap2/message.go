@@ -100,7 +100,7 @@ func (s *session) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string
 		targetUIDs.AddNum(imap.UID(ent.UID_))
 	}
 
-	err := w.WriteCopyData(&imap.CopyData{
+	err = w.WriteCopyData(&imap.CopyData{
 		UIDValidity: result.Target.UIDValidity_,
 		SourceUIDs:  sourceUIDs,
 		DestUIDs:    targetUIDs,

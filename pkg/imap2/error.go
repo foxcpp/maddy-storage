@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/emersion/go-imap/v2"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
@@ -45,6 +46,19 @@ func (s *session) asIMAPError(err error) error {
 			Type: imap.StatusResponseTypeNo,
 			Code: imap.ResponseCodeAlreadyExists,
 			Text: alreadyExists.Text,
+		}
+	}
+
+	var logic storeerrors.LogicError
+	if errors.As(err, &logic) {
+		code := imap.ResponseCodeCannot
+		if errors.Is(err, folder.ErrHasChildren) {
+			code = imap.ResponseCodeHasChildren
+		}
+		return &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: code,
+			Text: logic.Text,
 		}
 	}
 

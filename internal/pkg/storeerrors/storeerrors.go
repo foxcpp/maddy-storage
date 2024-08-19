@@ -1,5 +1,18 @@
 package storeerrors
 
+type LogicError struct {
+	Text  string
+	Cause error
+}
+
+func (e LogicError) Error() string {
+	return e.Text
+}
+
+func (e LogicError) Unwrap() error {
+	return e.Cause
+}
+
 type InternalError struct {
 	Reason error
 }

@@ -36,6 +36,10 @@ func NewAccount(repo account.Repo, auth Auth, changeLog changelog.Repo) Account 
 	}
 }
 
+func (a Account) GetByName(ctx context.Context, name string) (*account.Account, error) {
+	return a.repo.GetByName(ctx, name)
+}
+
 func (a Account) ListAll(ctx context.Context) ([]account.Account, error) {
 	return a.repo.GetAll(ctx, time.Time{}, account.OrderID)
 }

@@ -47,9 +47,14 @@ func asDTO(model *folder.Folder) *folderDTO {
 		panic(fmt.Sprintf("failed to marshal metadata for folder %v: %v", model.ID_, err))
 	}
 
+	var parentID []byte
+	if model.ParentID_ != (ulid.ULID{}) {
+		parentID = model.ParentID_.Bytes()
+	}
+
 	return &folderDTO{
 		ID:          model.ID_,
-		ParentID:    model.ParentID_.Bytes(),
+		ParentID:    parentID,
 		AccountID:   model.AccountID_,
 		Name:        model.Name_,
 		Path:        model.Path_,
@@ -95,9 +100,9 @@ func asModel(dto *folderDTO) *folder.Folder {
 }
 
 type entryDTO struct {
-	FolderID  [16]byte `gorm:"folder_id"`
-	MessageID [16]byte `gorm:"message_id"`
-	UID       uint32   `gorm:"uid"`
+	FolderID  ulid.ULID `gorm:"folder_id"`
+	MessageID ulid.ULID `gorm:"message_id"`
+	UID       uint32    `gorm:"uid"`
 }
 
 func (entryDTO) TableName() string { return "entry" }

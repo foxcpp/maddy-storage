@@ -93,8 +93,7 @@ func (r repo) GetByID(ctx context.Context, id ulid.ULID) (*folder.Folder, error)
 	err := r.db.Gorm(ctx).
 		Model(&folderDTO{}).
 		Where("folders.id = ?", id).
-		Limit(1).
-		Find(&f).Error
+		First(&f).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, folder.ErrNotFound
@@ -114,8 +113,7 @@ func (r repo) GetByPath(ctx context.Context, accountID ulid.ULID, path string) (
 		Model(&folderDTO{}).
 		Where("folders.account_id = ?", accountID).
 		Where("folders.path = ?", path).
-		Limit(1).
-		Find(&f).Error
+		First(&f).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, folder.ErrNotFound
@@ -256,7 +254,7 @@ func (r repo) GetByPrefix(ctx context.Context, accountID ulid.ULID, f folder.Fil
 			err := addFilterToQuery(r.db.Gorm(ctx).
 				Model(&folderDTO{}).
 				Where("folders.account_id = ?", accountID).
-				Where("folders.path = ? OR folders.path LIKE ?", p, p+folder.PathSeparator+"%"),
+				Where(`folders.path = ? OR folders.path LIKE ? ESCAPE '\'`, p, likeEscape.Replace(p)+folder.PathSeparator+"%"),
 				&f).
 				Find(&dtos).Error
 			if err != nil {
@@ -296,14 +294,12 @@ func (r repo) Create(ctx context.Context, f *folder.Folder) error {
 
 	err := r.db.Gorm(ctx).Create(dto).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
+		if sqlite.IsUniqueConstraintError(err) {
 			return folder.ErrAlreadyExists
 		}
-		var sqlErr sqlite3.Error
-		if errors.As(err, &sqlErr) && errors.Is(sqlErr.ExtendedCode, sqlite3.ErrConstraintUnique) {
-			return folder.ErrAlreadyExists
+		if sqlite.IsForeignConstraintError(err) {
+			return storeerrors.LogicError{Text: "parent folder does not exist"}
 		}
-		// TODO: Foreign key constraints, etc.
 		return storeerrors.InternalError{Reason: err}
 	}
 
@@ -339,44 +335,102 @@ func (r repo) Delete(ctx context.Context, folderID ulid.ULID) error {
 		Where("folders.id = ?", folderID).
 		Delete(&folderDTO{}).Error
 	if err != nil {
-		// TODO: Foreign key constraints, etc.
+		if sqlite.IsForeignConstraintError(err) {
+			return folder.ErrHasChildren
+		}
 		return storeerrors.InternalError{Reason: err}
 	}
 
 	return nil
 }
 
-func (r repo) RenameTree(ctx context.Context, accountID ulid.ULID, path, newPath string) ([]folder.RenamedFolder, error) {
-	defer trace.StartRegion(ctx, "folder.Repository.RenameTree").End()
+func (r repo) RenameMove(
+	ctx context.Context, accountID ulid.ULID,
+	oldParent, newParent *folder.Folder,
+	oldName, newName string,
+) ([]folder.RenamedFolder, error) {
+	defer trace.StartRegion(ctx, "folder.Repository.RenameMove").End()
 
 	var data []struct {
-		ID      [16]byte `gorm:"id"`
-		NewPath string   `gorm:"new_path"`
+		ID      ulid.ULID `gorm:"id"`
+		NewPath string    `gorm:"new_path"`
 	}
 
-	err := r.db.Gorm(ctx).
-		Raw(`
-			UPDATE folders SET path = ? || substr(path, ?)
-			WHERE folders.account_id = ? AND folders.path = ? OR folders.path LIKE ?
-			RETURNING folders.id AS id, folders.path AS new_name`,
-			newPath, len(path)+1, accountID, path, path+folder.PathSeparator+"%").
-		Find(&data).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return nil, folder.ErrAlreadyExists
-		}
-		var sqlErr sqlite3.Error
-		if errors.As(err, &sqlErr) && errors.Is(sqlErr.ExtendedCode, sqlite3.ErrConstraintUnique) {
-			return nil, folder.ErrAlreadyExists
-		}
-		return nil, storeerrors.InternalError{Reason: err}
+	var oldParentID, newParentID []byte
+	var oldPath, newPath string
+	if oldParent != nil {
+		oldParentID = oldParent.ID_[:]
+		oldPath = oldParent.Path_ + folder.PathSeparator + oldName
+	} else {
+		oldPath = oldName
 	}
+	if newParent != nil {
+		newParentID = newParent.ID_[:]
+		newPath = newParent.Path_ + folder.PathSeparator + newName
+	} else {
+		newPath = newName
+	}
+
+	err := r.db.Gorm(ctx).Transaction(func(tx *gorm.DB) error {
+		var dataFirst []struct {
+			ID      ulid.ULID `gorm:"id"`
+			NewPath string    `gorm:"new_path"`
+		}
+
+		// 1. Change parent, update path and name.
+		res1 := r.db.Gorm(ctx).
+			Raw(`
+				UPDATE folders 
+				SET
+					parent_id = ?,
+					path = ?,
+					name = ?
+				WHERE
+					parent_id IS ? -- Constraints are redundant for consistency.
+					AND path = ?
+					AND name = ?
+				RETURNING folders.id AS id, folders.path AS new_path
+				`,
+				newParentID, newPath, newName,
+				oldParentID, oldPath, oldName).
+			Find(&dataFirst)
+		if err := res1.Error; err != nil {
+			if sqlite.IsUniqueConstraintError(err) {
+				return folder.ErrAlreadyExists
+			}
+			if sqlite.IsForeignConstraintError(err) {
+				return storeerrors.NotExistsError{Text: "parent folder does not exist"}
+			}
+			return storeerrors.InternalError{Reason: err}
+		}
+		if res1.RowsAffected == 0 {
+			return folder.ErrNotFound
+		}
+
+		// 2. Update path for children directories (parent_id stays the same).
+		err := r.db.Gorm(ctx).
+			Raw(`
+			UPDATE folders SET path = ? || substr(path, ?)
+			WHERE folders.account_id = ? AND folders.path LIKE ? ESCAPE '\'
+			RETURNING folders.id AS id, folders.path AS new_path`,
+				newPath, len(oldPath)+1, accountID, likeEscape.Replace(oldPath)+folder.PathSeparator+"%").
+			Find(&data).Error
+		if err != nil {
+			if sqlite.IsUniqueConstraintError(err) { // Pretty much should be impossible, but check just in case.
+				return folder.ErrAlreadyExists
+			}
+			return storeerrors.InternalError{Reason: err}
+		}
+
+		data = append(data, dataFirst...)
+		return nil
+	})
 
 	res := make([]folder.RenamedFolder, len(data))
 	for i, f := range data {
 		res[i] = folder.RenamedFolder{
 			ID:      f.ID,
-			OldPath: strings.Replace(f.NewPath, newPath, path, 1),
+			OldPath: strings.Replace(f.NewPath, newPath, oldPath, 1),
 			NewPath: f.NewPath,
 		}
 	}
@@ -388,16 +442,16 @@ func (r repo) DeleteTree(ctx context.Context, accountID ulid.ULID, root string) 
 	defer trace.StartRegion(ctx, "folder.Repository.DeleteTree").End()
 
 	var data []struct {
-		ID   [16]byte
+		ID   ulid.ULID
 		Path string
 	}
 
 	err := r.db.Gorm(ctx).
 		Raw(`
 			DELETE FROM folders
-			WHERE folders.account_id = ? AND folders.path = ? OR folders.path LIKE ?
+			WHERE folders.account_id = ? AND folders.path = ? OR folders.path LIKE ? ESCAPE '\'
 			RETURNING folders.id AS id, folders.path AS path`,
-			accountID, root, root+folder.PathSeparator+"%").
+			accountID, root, likeEscape.Replace(root)+folder.PathSeparator+"%").
 		Find(&data).Error
 	if err != nil {
 		return nil, storeerrors.InternalError{Reason: err}

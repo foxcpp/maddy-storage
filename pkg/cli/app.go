@@ -41,9 +41,45 @@ func BuildCommands(provider AppProvider) cli.Commands {
 			},
 		},
 		{
-			Name:        "folder",
-			Usage:       "Folders management",
-			Subcommands: []*cli.Command{},
+			Name:  "folder",
+			Usage: "Folders management",
+			Subcommands: []*cli.Command{
+				{
+					Name:      "list",
+					Usage:     "List account's folders",
+					Args:      true,
+					ArgsUsage: "<account name>",
+					Action:    provider.listFolders,
+				},
+				{
+					Name:      "create",
+					Usage:     "Create new folder",
+					Args:      true,
+					ArgsUsage: "<account name> <folder name> [role]",
+					Action:    provider.createFolder,
+				},
+				{
+					Name:      "rename",
+					Usage:     "Rename a folder",
+					Args:      true,
+					ArgsUsage: "<account name> <old path> <new path>",
+					Action:    provider.renameFolder,
+				},
+				{
+					Name:      "delete",
+					Usage:     "Delete a folder",
+					Args:      true,
+					ArgsUsage: "<account name> <folder name>",
+					Flags: []cli.Flag{
+						&cli.BoolFlag{
+							Name:    "recursive",
+							Aliases: []string{"r"},
+							Usage:   "Also delete children folders",
+						},
+					},
+					Action: provider.deleteFolder,
+				},
+			},
 		},
 		{
 			Name:        "messages",

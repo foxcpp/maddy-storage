@@ -132,6 +132,7 @@ func NewFolder(parent *Folder, accountID ulid.ULID, name string, role Role) (*Fo
 			)
 		}
 		folder.Path_ = parent.Path_ + PathSeparator + folder.Name_
+		folder.ParentID_ = parent.ID_
 	} else {
 		folder.Path_ = folder.Name_
 	}

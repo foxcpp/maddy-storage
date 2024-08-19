@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
@@ -21,7 +22,9 @@ type DB struct {
 func New(path string, cfg Cfg) (DB, error) {
 	// TODO: WAL, other useful settings.
 
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+	dsn := fmt.Sprintf("file:%s?cache=shared&mode=rwc&_foreign_keys=on&_journal=WAL&_busy_timeout=10000", path)
+
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: sqlcommon.GormLogger{
 			SlowThreshold: cfg.SlowLogThreshold,
 		},

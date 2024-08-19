@@ -21,8 +21,8 @@ type msgDTO struct {
 func (msgDTO) TableName() string { return "messages" }
 
 type msgFlagDTO struct {
-	MsgID [16]byte `gorm:"message_id"`
-	Flag  string   `gorm:"flag"`
+	MsgID ulid.ULID `gorm:"message_id"`
+	Flag  string    `gorm:"flag"`
 }
 
 func (msgFlagDTO) TableName() string { return "message_flags" }

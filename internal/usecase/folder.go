@@ -7,6 +7,7 @@ import (
 
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -115,7 +116,7 @@ func (f Folder) Create(ctx context.Context, accountID ulid.ULID, path string, ro
 	name := path
 	if strings.Contains(path, folder.PathSeparator) {
 		parentPath := path[:strings.LastIndex(path, folder.PathSeparator)]
-		name = path[len(parentPath):]
+		name = path[len(parentPath)+1:]
 		var err error
 		parent, err = f.repo.GetByPath(ctx, accountID, parentPath)
 		if err != nil {
@@ -143,11 +144,69 @@ func (f Folder) Create(ctx context.Context, accountID ulid.ULID, path string, ro
 	return newFolder, nil
 }
 
-func (f Folder) Rename(ctx context.Context, accountID ulid.ULID, path, newPath string) ([]folder.RenamedFolder, error) {
-	return f.repo.RenameTree(ctx, accountID, path, newPath)
+func (f Folder) Rename(ctx context.Context, accountID ulid.ULID, oldPath, newPath string) ([]folder.RenamedFolder, error) {
+	if oldPath == newPath {
+		return nil, nil
+	}
+	if strings.HasPrefix(newPath, oldPath) {
+		return nil, storeerrors.LogicError{Text: "cannot move folder into itself"}
+	}
+
+	var oldParent *folder.Folder
+	oldName := oldPath
+	if strings.Contains(oldPath, folder.PathSeparator) {
+		parentPath := oldPath[:strings.LastIndex(oldPath, folder.PathSeparator)]
+		oldName = oldPath[len(parentPath)+1:]
+		var err error
+		oldParent, err = f.repo.GetByPath(ctx, accountID, parentPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var newParent *folder.Folder
+	newName := newPath
+	if strings.Contains(newPath, folder.PathSeparator) {
+		parentPath := newPath[:strings.LastIndex(newPath, folder.PathSeparator)]
+		newName = newPath[len(parentPath)+1:]
+		var err error
+		newParent, err = f.repo.GetByPath(ctx, accountID, parentPath)
+		if err != nil {
+			if !errors.Is(err, folder.ErrNotFound) {
+				return nil, err
+			}
+
+			// TODO: Limit recursion
+			newParent, err = f.Create(ctx, accountID, parentPath, folder.RoleNone)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return f.repo.RenameMove(
+		ctx, accountID,
+		oldParent, newParent,
+		oldName, newName,
+	)
 }
 
-func (f Folder) Delete(ctx context.Context, accountID ulid.ULID, path string) ([]folder.DeletedFolder, error) {
+func (f Folder) Delete(ctx context.Context, accountID ulid.ULID, recursive bool, path string) ([]folder.DeletedFolder, error) {
+	if !recursive {
+		deleted, err := f.repo.GetByPath(ctx, accountID, path)
+		if err != nil {
+			return nil, err
+		}
+		if err := f.repo.Delete(ctx, deleted.ID_); err != nil {
+			return nil, err
+		}
+		return []folder.DeletedFolder{
+			{
+				ID:   deleted.ID_,
+				Path: deleted.Path_,
+			},
+		}, nil
+	}
 	return f.repo.DeleteTree(ctx, accountID, path)
 }
 
