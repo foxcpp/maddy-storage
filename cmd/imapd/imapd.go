@@ -46,7 +46,7 @@ func main() {
 		accountsRepo = accountsqlite.New(db)
 		folderRepo = foldersqlite.New(db)
 		messageRepo = messagesqlite.New(db)
-		changelogRepo := changelogsqlite.New(db)
+		changelogRepo = changelogsqlite.New(db)
 	}
 
 	cfg := imap2.Config{
