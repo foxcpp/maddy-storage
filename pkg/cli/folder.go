@@ -56,13 +56,14 @@ func (a AppProvider) createFolder(c *cli.Context) error {
 	if c.NArg() == 3 {
 		role = folder.Role(c.Args().Get(2))
 	}
+	createParents := c.Bool("parents")
 
 	acct, err := app.Accounts.GetByName(c.Context, accountName)
 	if err != nil {
 		return err
 	}
 
-	created, err := app.Folders.Create(c.Context, acct.ID_, folderName, role)
+	created, err := app.Folders.Create(c.Context, acct.ID_, folderName, role, createParents)
 	if err != nil {
 		return err
 	}
@@ -88,13 +89,14 @@ func (a AppProvider) renameFolder(c *cli.Context) error {
 	accountName := c.Args().First()
 	oldPath := c.Args().Get(1)
 	newPath := c.Args().Get(2)
+	createParents := c.Bool("parents")
 
 	acct, err := app.Accounts.GetByName(c.Context, accountName)
 	if err != nil {
 		return err
 	}
 
-	renamed, err := app.Folders.Rename(c.Context, acct.ID_, oldPath, newPath)
+	renamed, err := app.Folders.Rename(c.Context, acct.ID_, oldPath, newPath, createParents)
 	if err != nil {
 		return err
 	}

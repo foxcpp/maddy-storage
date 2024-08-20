@@ -56,14 +56,28 @@ func BuildCommands(provider AppProvider) cli.Commands {
 					Usage:     "Create new folder",
 					Args:      true,
 					ArgsUsage: "<account name> <folder name> [role]",
-					Action:    provider.createFolder,
+					Flags: []cli.Flag{
+						&cli.BoolFlag{
+							Name:    "parent",
+							Aliases: []string{"p"},
+							Usage:   "Create parent directories if necessary",
+						},
+					},
+					Action: provider.createFolder,
 				},
 				{
 					Name:      "rename",
 					Usage:     "Rename a folder",
 					Args:      true,
 					ArgsUsage: "<account name> <old path> <new path>",
-					Action:    provider.renameFolder,
+					Flags: []cli.Flag{
+						&cli.BoolFlag{
+							Name:    "parent",
+							Aliases: []string{"p"},
+							Usage:   "Create parent directories if necessary",
+						},
+					},
+					Action: provider.renameFolder,
 				},
 				{
 					Name:      "delete",

@@ -47,7 +47,7 @@ func (s *session) Create(mailbox string, options *imap.CreateOptions) error {
 		}
 	}
 
-	_, err := s.b.folders.Create(ctx, s.accountID, mailbox, role)
+	_, err := s.b.folders.Create(ctx, s.accountID, mailbox, role, true)
 	return s.asIMAPError(err)
 }
 
@@ -80,7 +80,7 @@ func (s *session) Rename(mailbox, newName string) error {
 		}
 	}
 
-	_, err := s.b.folders.Rename(ctx, s.accountID, mailbox, newName)
+	_, err := s.b.folders.Rename(ctx, s.accountID, mailbox, newName, true)
 	return s.asIMAPError(err)
 }
 

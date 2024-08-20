@@ -111,7 +111,7 @@ func (f Folder) List(ctx context.Context, accountID ulid.ULID, opts *ListOpts, o
 	return dataList, nil
 }
 
-func (f Folder) Create(ctx context.Context, accountID ulid.ULID, path string, role folder.Role) (*folder.Folder, error) {
+func (f Folder) Create(ctx context.Context, accountID ulid.ULID, path string, role folder.Role, createParent bool) (*folder.Folder, error) {
 	var parent *folder.Folder
 	name := path
 	if strings.Contains(path, folder.PathSeparator) {
@@ -124,8 +124,12 @@ func (f Folder) Create(ctx context.Context, accountID ulid.ULID, path string, ro
 				return nil, err
 			}
 
+			if !createParent {
+				return nil, storeerrors.NotExistsError{Text: "parent folder does not exist"}
+			}
+
 			// TODO: Limit recursion
-			parent, err = f.Create(ctx, accountID, parentPath, folder.RoleNone)
+			parent, err = f.Create(ctx, accountID, parentPath, folder.RoleNone, createParent)
 			if err != nil {
 				return nil, err
 			}
@@ -144,7 +148,7 @@ func (f Folder) Create(ctx context.Context, accountID ulid.ULID, path string, ro
 	return newFolder, nil
 }
 
-func (f Folder) Rename(ctx context.Context, accountID ulid.ULID, oldPath, newPath string) ([]folder.RenamedFolder, error) {
+func (f Folder) Rename(ctx context.Context, accountID ulid.ULID, oldPath, newPath string, createParent bool) ([]folder.RenamedFolder, error) {
 	if oldPath == newPath {
 		return nil, nil
 	}
@@ -176,8 +180,12 @@ func (f Folder) Rename(ctx context.Context, accountID ulid.ULID, oldPath, newPat
 				return nil, err
 			}
 
+			if !createParent {
+				return nil, storeerrors.NotExistsError{Text: "parent folder does not exist"}
+			}
+
 			// TODO: Limit recursion
-			newParent, err = f.Create(ctx, accountID, parentPath, folder.RoleNone)
+			newParent, err = f.Create(ctx, accountID, parentPath, folder.RoleNone, createParent)
 			if err != nil {
 				return nil, err
 			}
