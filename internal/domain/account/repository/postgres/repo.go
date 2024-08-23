@@ -1,24 +1,23 @@
-package accountsqlite
+package accountpostgres
 
 import (
 	"context"
 	"errors"
-	"github.com/foxcpp/maddy-storage/internal/domain/account/repository/sqlcommon"
-	"runtime/trace"
-	"time"
-
 	"github.com/foxcpp/maddy-storage/internal/domain/account"
+	"github.com/foxcpp/maddy-storage/internal/domain/account/repository/sqlcommon"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
-	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
+	"github.com/foxcpp/maddy-storage/internal/repository/postgresql"
 	"github.com/oklog/ulid/v2"
 	"gorm.io/gorm"
+	"runtime/trace"
+	"time"
 )
 
 type repo struct {
-	db sqlite.DB
+	db postgresql.DB
 }
 
-func New(db sqlite.DB) account.Repo {
+func New(db postgresql.DB) account.Repo {
 	return repo{db: db}
 }
 

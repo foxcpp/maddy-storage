@@ -1,16 +1,15 @@
-package foldersqlite
+package sqlcommon
 
 import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"time"
-
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/oklog/ulid/v2"
+	"time"
 )
 
-type folderDTO struct {
+type FolderDTO struct {
 	ID        ulid.ULID `gorm:"id"`
 	ParentID  []byte    `gorm:"parent_id"`
 	AccountID ulid.ULID `gorm:"account_id"`
@@ -30,9 +29,9 @@ type folderDTO struct {
 	UpdatedAt time.Time       `gorm:"updated_at,autoUpdateTime:false"`
 }
 
-func (folderDTO) TableName() string { return "folders" }
+func (FolderDTO) TableName() string { return "folders" }
 
-func asDTO(model *folder.Folder) *folderDTO {
+func AsDTO(model *folder.Folder) *FolderDTO {
 	subscribed := 0
 	if model.Subscribed_ {
 		subscribed = 1
@@ -52,7 +51,7 @@ func asDTO(model *folder.Folder) *folderDTO {
 		parentID = model.ParentID_.Bytes()
 	}
 
-	return &folderDTO{
+	return &FolderDTO{
 		ID:          model.ID_,
 		ParentID:    parentID,
 		AccountID:   model.AccountID_,
@@ -69,7 +68,7 @@ func asDTO(model *folder.Folder) *folderDTO {
 	}
 }
 
-func asModel(dto *folderDTO) *folder.Folder {
+func AsModel(dto *FolderDTO) *folder.Folder {
 	model := &folder.Folder{
 		ID_:              dto.ID,
 		AccountID_:       dto.AccountID,
@@ -99,23 +98,23 @@ func asModel(dto *folderDTO) *folder.Folder {
 	return model
 }
 
-type entryDTO struct {
+type EntryDTO struct {
 	FolderID  ulid.ULID `gorm:"folder_id"`
 	MessageID ulid.ULID `gorm:"message_id"`
 	UID       uint32    `gorm:"uid"`
 }
 
-func (entryDTO) TableName() string { return "entry" }
+func (EntryDTO) TableName() string { return "entry" }
 
-func entryAsDTO(entry *folder.Entry) *entryDTO {
-	return &entryDTO{
+func EntryAsDTO(entry *folder.Entry) *EntryDTO {
+	return &EntryDTO{
 		FolderID:  entry.FolderID_,
 		MessageID: entry.MsgID_,
 		UID:       entry.UID_,
 	}
 }
 
-func entryAsModel(dto *entryDTO) *folder.Entry {
+func EntryAsModel(dto *EntryDTO) *folder.Entry {
 	return &folder.Entry{
 		FolderID_: dto.FolderID,
 		MsgID_:    dto.MessageID,

@@ -1,4 +1,4 @@
-package changelogsqlite
+package sqlcommon
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
-type entryDTO struct {
+type EntryDTO struct {
 	At        time.Time `gorm:"at"`
 	Type      string    `gorm:"type"`
 	AccountID ulid.ULID `gorm:"account_id"`
@@ -21,10 +21,10 @@ type entryDTO struct {
 	Data      []byte    `gorm:"data"` // JSON
 }
 
-func (entryDTO) TableName() string { return "changelog_entry" }
+func (EntryDTO) TableName() string { return "changelog_entry" }
 
-func asDTO(ent *changelog.Entry) *entryDTO {
-	dto := &entryDTO{
+func AsDTO(ent *changelog.Entry) *EntryDTO {
+	dto := &EntryDTO{
 		At:        ent.At,
 		Type:      string(ent.Type),
 		AccountID: ent.AccountID,
@@ -56,7 +56,7 @@ func asDTO(ent *changelog.Entry) *entryDTO {
 	return dto
 }
 
-func asModel(dto *entryDTO) *changelog.Entry {
+func AsModel(dto *EntryDTO) *changelog.Entry {
 	ent := &changelog.Entry{
 		At:        dto.At,
 		Type:      changelog.Type(dto.Type),

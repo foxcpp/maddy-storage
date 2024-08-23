@@ -1,10 +1,11 @@
-package foldersqlite
+package folderpostgres
 
 import (
 	"context"
 	"database/sql"
 	"errors"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlcommon"
+	"github.com/foxcpp/maddy-storage/internal/repository/postgresql"
 	"regexp"
 	"runtime/trace"
 	"sort"
@@ -12,17 +13,15 @@ import (
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
-	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
-	"github.com/mattn/go-sqlite3"
 	"github.com/oklog/ulid/v2"
 	"gorm.io/gorm"
 )
 
 type repo struct {
-	db sqlite.DB
+	db postgresql.DB
 }
 
-func New(db sqlite.DB) folder.Repo {
+func New(db postgresql.DB) folder.Repo {
 	return repo{db: db}
 }
 
@@ -295,10 +294,10 @@ func (r repo) Create(ctx context.Context, f *folder.Folder) error {
 
 	err := r.db.Gorm(ctx).Create(dto).Error
 	if err != nil {
-		if sqlite.IsUniqueConstraintError(err) {
+		if postgresql.IsUniqueConstraintError(err) {
 			return folder.ErrAlreadyExists
 		}
-		if sqlite.IsForeignConstraintError(err) {
+		if postgresql.IsForeignConstraintError(err) {
 			return storeerrors.LogicError{Text: "parent folder does not exist"}
 		}
 		return storeerrors.InternalError{Reason: err}
@@ -336,7 +335,7 @@ func (r repo) Delete(ctx context.Context, folderID ulid.ULID) error {
 		Where("folders.id = ?", folderID).
 		Delete(&sqlcommon.FolderDTO{}).Error
 	if err != nil {
-		if sqlite.IsForeignConstraintError(err) {
+		if postgresql.IsForeignConstraintError(err) {
 			return folder.ErrHasChildren
 		}
 		return storeerrors.InternalError{Reason: err}
@@ -357,10 +356,9 @@ func (r repo) RenameMove(
 		NewPath string    `gorm:"new_path"`
 	}
 
-	var oldParentID, newParentID []byte
+	var newParentID []byte
 	var oldPath, newPath string
 	if oldParent != nil {
-		oldParentID = oldParent.ID_[:]
 		oldPath = oldParent.Path_ + folder.PathSeparator + oldName
 	} else {
 		oldPath = oldName
@@ -387,19 +385,18 @@ func (r repo) RenameMove(
 					path = ?,
 					name = ?
 				WHERE
-					parent_id IS ? -- Constraints are redundant for consistency.
-					AND path = ?
+					path = ?
 					AND name = ?
 				RETURNING folders.id AS id, folders.path AS new_path
 				`,
 				newParentID, newPath, newName,
-				oldParentID, oldPath, oldName).
+				oldPath, oldName).
 			Find(&dataFirst)
 		if err := res1.Error; err != nil {
-			if sqlite.IsUniqueConstraintError(err) {
+			if postgresql.IsUniqueConstraintError(err) {
 				return folder.ErrAlreadyExists
 			}
-			if sqlite.IsForeignConstraintError(err) {
+			if postgresql.IsForeignConstraintError(err) {
 				return storeerrors.NotExistsError{Text: "parent folder does not exist"}
 			}
 			return storeerrors.InternalError{Reason: err}
@@ -417,7 +414,7 @@ func (r repo) RenameMove(
 				newPath, len(oldPath)+1, accountID, likeEscape.Replace(oldPath)+folder.PathSeparator+"%").
 			Find(&data).Error
 		if err != nil {
-			if sqlite.IsUniqueConstraintError(err) { // Pretty much should be impossible, but check just in case.
+			if postgresql.IsUniqueConstraintError(err) { // Pretty much should be impossible, but check just in case.
 				return folder.ErrAlreadyExists
 			}
 			return storeerrors.InternalError{Reason: err}
@@ -476,7 +473,7 @@ func (r repo) NextUID(ctx context.Context, folderID ulid.ULID, n int) ([]uint32,
 		panic("n must be positive")
 	}
 
-	// For SQLite, we store uidnext variable in the folder value.
+	// For PostgreSQL, we store uidnext variable in the folder value.
 	var lastUID uint32
 
 	err := r.db.Gorm(ctx).Raw(`
@@ -509,11 +506,9 @@ func (r repo) CreateEntry(ctx context.Context, entry ...folder.Entry) error {
 
 	err := r.db.Gorm(ctx).Create(dtos).Error
 	if err != nil {
-		var sqlErr sqlite3.Error
-		if errors.As(err, &sqlErr) && errors.Is(sqlErr.ExtendedCode, sqlite3.ErrConstraintForeignKey) {
+		if postgresql.IsForeignConstraintError(err) {
 			return folder.ErrDanglingEntry
 		}
-
 		// TODO: Foreign key constraints, etc.
 		return storeerrors.InternalError{Reason: err}
 	}
@@ -680,7 +675,7 @@ func (r repo) DeleteEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ran
 }
 
 func (r repo) Tx(ctx context.Context, readOnly bool, f func(r folder.Repo) error) error {
-	return r.db.Tx(ctx, readOnly, func(tx sqlite.DB) error {
+	return r.db.Tx(ctx, readOnly, func(tx postgresql.DB) error {
 		txRepo := repo{db: tx}
 		return f(txRepo)
 	})

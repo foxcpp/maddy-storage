@@ -1,22 +1,22 @@
-package changelogsqlite
+package changelogpostgres
 
 import (
 	"context"
 	"database/sql"
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlcommon"
+	"github.com/foxcpp/maddy-storage/internal/repository/postgresql"
 	"time"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
-	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
 	"github.com/oklog/ulid/v2"
 )
 
 type repo struct {
-	db sqlite.DB
+	db postgresql.DB
 }
 
-func New(db sqlite.DB) changelog.Repo {
+func New(db postgresql.DB) changelog.Repo {
 	return repo{db: db}
 }
 

@@ -1,4 +1,4 @@
-package messagesqlite
+package common
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
-type msgDTO struct {
+type MsgDTO struct {
 	ID        ulid.ULID `gorm:"id,primaryKey"`
 	Date      time.Time `gorm:"date"`
 	CreatedAt time.Time `gorm:"created_at,autoCreateTime:false"`
@@ -18,16 +18,16 @@ type msgDTO struct {
 	Content   []byte    `gorm:"content"` // JSON
 }
 
-func (msgDTO) TableName() string { return "messages" }
+func (MsgDTO) TableName() string { return "messages" }
 
-type msgFlagDTO struct {
+type MsgFlagDTO struct {
 	MsgID ulid.ULID `gorm:"message_id"`
 	Flag  string    `gorm:"flag"`
 }
 
-func (msgFlagDTO) TableName() string { return "message_flags" }
+func (MsgFlagDTO) TableName() string { return "message_flags" }
 
-type msgPartDTO struct {
+type MsgPartDTO struct {
 	ID             ulid.ULID `gorm:"id,primaryKey"`
 	MessageID      ulid.ULID `gorm:"message_id"`
 	Path           string    `gorm:"path"`
@@ -36,9 +36,9 @@ type msgPartDTO struct {
 	ExternalBlobID string    `gorm:"external_blob_id"`
 }
 
-func (msgPartDTO) TableName() string { return "message_parts" }
+func (MsgPartDTO) TableName() string { return "message_parts" }
 
-func asDTO(model *message.Msg) (*msgDTO, []msgFlagDTO, []msgPartDTO, error) {
+func AsDTO(model *message.Msg) (*MsgDTO, []MsgFlagDTO, []MsgPartDTO, error) {
 	metaJson, err := json.Marshal(model.Meta_)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to marshal metadata: %v", err)
@@ -48,7 +48,7 @@ func asDTO(model *message.Msg) (*msgDTO, []msgFlagDTO, []msgPartDTO, error) {
 		return nil, nil, nil, fmt.Errorf("failed to marshal content data: %v", err)
 	}
 
-	msgDto := &msgDTO{
+	msgDto := &MsgDTO{
 		ID:        model.ID_,
 		Date:      model.ReceivedAt_,
 		CreatedAt: model.CreatedAt_,
@@ -56,21 +56,21 @@ func asDTO(model *message.Msg) (*msgDTO, []msgFlagDTO, []msgPartDTO, error) {
 		Meta:      metaJson,
 		Content:   contentJson,
 	}
-	flagsDto := make([]msgFlagDTO, len(model.Flags_))
+	flagsDto := make([]MsgFlagDTO, len(model.Flags_))
 	for i, f := range model.Flags_ {
-		flagsDto[i] = msgFlagDTO{
+		flagsDto[i] = MsgFlagDTO{
 			MsgID: msgDto.ID,
 			Flag:  f,
 		}
 	}
-	partsDto := make([]msgPartDTO, len(model.Parts_))
+	partsDto := make([]MsgPartDTO, len(model.Parts_))
 	for i, p := range model.Parts_ {
 		contentJson, err := json.Marshal(p.Content_)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to marshal content data: %v", err)
 		}
 
-		partsDto[i] = msgPartDTO{
+		partsDto[i] = MsgPartDTO{
 			ID:             p.ID_,
 			MessageID:      msgDto.ID,
 			Path:           p.Path_.String(),
@@ -83,7 +83,7 @@ func asDTO(model *message.Msg) (*msgDTO, []msgFlagDTO, []msgPartDTO, error) {
 	return msgDto, flagsDto, partsDto, nil
 }
 
-func asModel(msgDTO *msgDTO, flagsDTO []msgFlagDTO, partsDTO []msgPartDTO) (*message.Msg, error) {
+func AsModel(msgDTO *MsgDTO, flagsDTO []MsgFlagDTO, partsDTO []MsgPartDTO) (*message.Msg, error) {
 	msg := &message.Msg{
 		ID_:         msgDTO.ID,
 		ReceivedAt_: msgDTO.Date,

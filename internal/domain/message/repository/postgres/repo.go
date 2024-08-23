@@ -1,4 +1,4 @@
-package messagesqlite
+package messagepostgres
 
 import (
 	"context"
@@ -6,20 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/repository/common"
+	"github.com/foxcpp/maddy-storage/internal/repository/postgresql"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
-	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
 	"github.com/oklog/ulid/v2"
 	"gorm.io/gorm"
 )
 
 type repo struct {
-	db sqlite.DB
+	db postgresql.DB
 }
 
-func New(db sqlite.DB) message.Repo {
+func New(db postgresql.DB) message.Repo {
 	return repo{db: db}
 }
 

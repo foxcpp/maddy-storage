@@ -3,6 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	accountpostgres "github.com/foxcpp/maddy-storage/internal/domain/account/repository/postgres"
+	changelogpostgres "github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/postgres"
+	folderpostgres "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/postgres"
+	messagepostgres "github.com/foxcpp/maddy-storage/internal/domain/message/repository/postgres"
+	"github.com/foxcpp/maddy-storage/internal/repository/postgresql"
 	"os"
 	"runtime/debug"
 
@@ -46,6 +51,17 @@ func storageInit(c *cli.Context) (storagecli.App, error) {
 		folderRepo = foldersqlite.New(db)
 		messageRepo = messagesqlite.New(db)
 		changelogRepo = changelogsqlite.New(db)
+	}
+	if c.IsSet("postgres") {
+		db, err := postgresql.New(c.Path("postgres"), postgresql.Cfg{})
+		if err != nil {
+			return storagecli.App{}, cli.Exit("Unable to open Postgres DB: "+err.Error(), 2)
+		}
+
+		accountsRepo = accountpostgres.New(db)
+		folderRepo = folderpostgres.New(db)
+		messageRepo = messagepostgres.New(db)
+		changelogRepo = changelogpostgres.New(db)
 	} else {
 		return storagecli.App{}, cli.Exit("Missing DB path", 2)
 	}
@@ -59,7 +75,7 @@ func storageInit(c *cli.Context) (storagecli.App, error) {
 
 func main() {
 	app := cli.NewApp()
-	app.Name = "maddy-storage CLI management utility"
+	app.Description = "maddy-storage CLI management utility"
 	app.ExitErrHandler = func(cCtx *cli.Context, err error) {
 		cli.HandleExitCoder(err)
 		if err != nil {
@@ -78,6 +94,10 @@ func main() {
 		},
 		&cli.StringFlag{
 			Name:      "sqlite",
+			TakesFile: true,
+		},
+		&cli.StringFlag{
+			Name:      "postgres",
 			TakesFile: true,
 		},
 	}
