@@ -12,7 +12,6 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
-	"github.com/mattn/go-sqlite3"
 	"github.com/oklog/ulid/v2"
 	"gorm.io/gorm"
 )
@@ -508,8 +507,7 @@ func (r repo) CreateEntry(ctx context.Context, entry ...folder.Entry) error {
 
 	err := r.db.Gorm(ctx).Create(dtos).Error
 	if err != nil {
-		var sqlErr sqlite3.Error
-		if errors.As(err, &sqlErr) && errors.Is(sqlErr.ExtendedCode, sqlite3.ErrConstraintForeignKey) {
+		if sqlite.IsForeignConstraintError(err) {
 			return folder.ErrDanglingEntry
 		}
 

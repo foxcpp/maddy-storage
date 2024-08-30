@@ -3,11 +3,9 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"time"
 
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -20,11 +18,7 @@ type DB struct {
 }
 
 func New(path string, cfg Cfg) (DB, error) {
-	// TODO: WAL, other useful settings.
-
-	dsn := fmt.Sprintf("file:%s?cache=shared&mode=rwc&_foreign_keys=on&_journal=WAL&_busy_timeout=10000", path)
-
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+	db, err := gorm.Open(open(path), &gorm.Config{
 		Logger: sqlcommon.GormLogger{
 			SlowThreshold: cfg.SlowLogThreshold,
 		},
@@ -32,6 +26,32 @@ func New(path string, cfg Cfg) (DB, error) {
 	if err != nil {
 		return DB{}, err
 	}
+
+	ret := DB{db: db}
+
+	if err := ret.migrationsUp(context.Background()); err != nil {
+		return DB{}, err
+	}
+
+	return ret, nil
+}
+
+func NewMemory(cfg Cfg) (DB, error) {
+	db, err := gorm.Open(open(":memory:"), &gorm.Config{
+		Logger: sqlcommon.GormLogger{
+			SlowThreshold: cfg.SlowLogThreshold,
+		},
+	})
+	if err != nil {
+		return DB{}, err
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return DB{}, err
+	}
+	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetMaxOpenConns(1)
 
 	ret := DB{db: db}
 
@@ -56,4 +76,12 @@ func (db DB) Gorm(ctx context.Context) *gorm.DB {
 
 func (db DB) SQL() (*sql.DB, error) {
 	return db.db.DB()
+}
+
+func (db DB) Close() error {
+	sqlDB, err := db.SQL()
+	if err != nil {
+		return nil
+	}
+	return sqlDB.Close()
 }
