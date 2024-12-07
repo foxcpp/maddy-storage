@@ -105,7 +105,7 @@ type entryDTO struct {
 	UID       uint32    `gorm:"uid"`
 }
 
-func (entryDTO) TableName() string { return "entry" }
+func (entryDTO) TableName() string { return "folder_entries" }
 
 func entryAsDTO(entry *folder.Entry) *entryDTO {
 	return &entryDTO{

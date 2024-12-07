@@ -97,14 +97,16 @@ func (r repo) GetByName(ctx context.Context, name string) (*account.Account, err
 	return model, nil
 }
 
-func (r repo) Create(ctx context.Context, account *account.Account) error {
+func (r repo) Create(ctx context.Context, acct *account.Account) error {
 	defer trace.StartRegion(ctx, "account.Repository.Create").End()
 
-	dto := asDTO(account)
+	dto := asDTO(acct)
 
 	err := r.db.Gorm(ctx).Create(dto).Error
 	if err != nil {
-		// TODO: Foreign key constraints, etc.
+		if sqlite.IsUniqueConstraintError(err) {
+			return account.ErrAlreadyExists
+		}
 		return storeerrors.InternalError{Reason: err}
 	}
 

@@ -2,6 +2,7 @@ package message
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/metadata"
@@ -49,6 +50,7 @@ type Part struct {
 	// Immutable - no fields can be changed after creation.
 
 	ID_   ulid.ULID
+	Order int
 	Path_ Path
 
 	Content_        *ContentPartData
@@ -62,7 +64,29 @@ func (p *Part) Content() *ContentPartData { return p.Content_ }
 func (p *Part) InlineBlob() []byte        { return p.Inline_ }
 func (p *Part) ExternalBlobID() string    { return p.ExternalBlobID_ }
 
+func (p *Part) IsNestedMessage() bool {
+	return strings.EqualFold(p.Content_.Type, "message/rfc822") ||
+		strings.EqualFold(p.Content_.Type, "message/global")
+}
+
+func (p *Part) IsMultipart() bool {
+	contentType, _, ok := strings.Cut(p.Content_.Type, "/")
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(contentType, "multipart")
+}
+
+func (p *Part) IsText() bool {
+	contentType, _, ok := strings.Cut(p.Content_.Type, "/")
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(contentType, "text")
+}
+
 type NewMsg struct {
+	ID      ulid.ULID
 	Date    time.Time // IMAP internal date, can be zero (will default to created_at)
 	Flags   []string
 	Content *ContentData
@@ -80,7 +104,9 @@ func (nm *NewMsg) Validate() error {
 }
 
 type NewPart struct {
-	Path Path
+	ID    ulid.ULID
+	Order int
+	Path  Path
 
 	Content    *ContentPartData
 	InlineBlob []byte
@@ -94,11 +120,9 @@ func (np *NewPart) Validate() error {
 	if np.Content == nil {
 		return fmt.Errorf("no content data")
 	}
-	if np.InlineBlob != nil && uint32(len(np.InlineBlob)) != np.Content.Size {
-		return fmt.Errorf("inline blob (%d octets) size is not equal to size (%d)", len(np.InlineBlob), np.Content.Size)
-	}
-	if np.Path.Empty() {
-		return fmt.Errorf("empty part path")
+	if np.InlineBlob != nil && uint32(len(np.InlineBlob)) != np.Content.Size+np.Content.HeaderSize {
+		return fmt.Errorf("inline blob (%d octets) size is not equal to size (%d, %d)",
+			len(np.InlineBlob), np.Content.Size, np.Content.HeaderSize)
 	}
 
 	return nil
@@ -114,8 +138,12 @@ func New(data *NewMsg) (*Msg, error) {
 
 	parts := make([]Part, len(data.Parts))
 	for i, p := range data.Parts {
+		if p.ID == (ulid.ULID{}) {
+			data.ID = ulid.Make()
+		}
 		parts[i] = Part{
-			ID_:             ulid.Make(),
+			ID_:             p.ID,
+			Order:           p.Order,
 			Path_:           p.Path,
 			Content_:        p.Content,
 			Inline_:         p.InlineBlob,
@@ -123,9 +151,13 @@ func New(data *NewMsg) (*Msg, error) {
 		}
 	}
 
+	if data.ID == (ulid.ULID{}) {
+		data.ID = ulid.Make()
+	}
+
 	now := time.Now()
 	msg := &Msg{
-		ID_:         ulid.Make(),
+		ID_:         data.ID,
 		ReceivedAt_: data.Date,
 		CreatedAt_:  now,
 		UpdatedAt_:  now,

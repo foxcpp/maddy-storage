@@ -1,6 +1,7 @@
 package imap2
 
 import (
+	"context"
 	"regexp"
 	"runtime/trace"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/foxcpp/maddy-storage/internal/usecase"
 	"github.com/oklog/ulid/v2"
@@ -16,6 +18,7 @@ import (
 func (s *session) Create(mailbox string, options *imap.CreateOptions) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Create")
 	defer task.End()
+	ctx = contextlog.WithLogger(ctx, s.log)
 
 	role := folder.RoleNone
 	if len(options.SpecialUse) != 0 {
@@ -54,6 +57,7 @@ func (s *session) Create(mailbox string, options *imap.CreateOptions) error {
 func (s *session) Delete(mailbox string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Delete")
 	defer task.End()
+	ctx = contextlog.WithLogger(ctx, s.log)
 
 	deleted, err := s.b.folders.Delete(ctx, s.accountID, false, mailbox)
 	if err != nil {
@@ -70,6 +74,7 @@ func (s *session) Delete(mailbox string) error {
 func (s *session) Rename(mailbox, newName string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Rename")
 	defer task.End()
+	ctx = contextlog.WithLogger(ctx, s.log)
 
 	if strings.EqualFold(mailbox, "INBOX") {
 		// TODO: Implement "move everything from INBOX" behavior.
@@ -87,6 +92,7 @@ func (s *session) Rename(mailbox, newName string) error {
 func (s *session) Subscribe(mailbox string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Subscribe")
 	defer task.End()
+	ctx = contextlog.WithLogger(ctx, s.log)
 
 	err := s.b.folders.Subscribe(ctx, s.accountID, mailbox)
 	return s.asIMAPError(err)
@@ -95,6 +101,7 @@ func (s *session) Subscribe(mailbox string) error {
 func (s *session) Unsubscribe(mailbox string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Unsubscribe")
 	defer task.End()
+	ctx = contextlog.WithLogger(ctx, s.log)
 
 	err := s.b.folders.Unsubscribe(ctx, s.accountID, mailbox)
 	return s.asIMAPError(err)
@@ -145,6 +152,10 @@ func folderRoleAsSpecial(r folder.Role) imap.MailboxAttr {
 func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, options *imap.ListOptions) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.List")
 	defer task.End()
+	ctx = contextlog.WithLogger(ctx, s.log)
+
+	options.ReturnSpecialUse = true
+	options.ReturnChildren = true
 
 	regexpPatterns := make([]*regexp.Regexp, len(patterns))
 	for i, p := range patterns {
@@ -257,15 +268,18 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 }
 
 func (s *session) Unselect() error {
-	_, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Unselect")
+	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Unselect")
 	defer task.End()
 
+	return s.unselect(ctx)
+}
+
+func (s *session) unselect(ctx context.Context) error {
 	s.selectedFolderID = ulid.ULID{}
 	if s.updateHandler != nil {
 		s.updateHandler.Close()
 		s.updateHandler = nil
 	}
 	s.readOnly = false
-
 	return nil
 }

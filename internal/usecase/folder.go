@@ -7,8 +7,10 @@ import (
 
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/oklog/ulid/v2"
+	"go.uber.org/zap"
 )
 
 type Folder struct {
@@ -145,6 +147,8 @@ func (f Folder) Create(ctx context.Context, accountID ulid.ULID, path string, ro
 		return nil, err
 	}
 
+	contextlog.FromContext(ctx).Debug("created folder", zap.Stringer("id", newFolder.ID_), zap.String("path", path))
+
 	return newFolder, nil
 }
 
@@ -208,6 +212,7 @@ func (f Folder) Delete(ctx context.Context, accountID ulid.ULID, recursive bool,
 		if err := f.repo.Delete(ctx, deleted.ID_); err != nil {
 			return nil, err
 		}
+		contextlog.FromContext(ctx).Debug("deleted folder", zap.Stringer("id", deleted.ID_), zap.String("path", deleted.Path_))
 		return []folder.DeletedFolder{
 			{
 				ID:   deleted.ID_,

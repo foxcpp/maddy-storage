@@ -6,6 +6,8 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 )
 
@@ -20,12 +22,46 @@ func uidSetAsRange(set imap.UIDSet) []folder.UIDRange {
 	return res
 }
 
-func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.SelectData, error) {
-	//ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Select")
-	//defer task.End()
+func stringListAsFlags(flags []string) []imap.Flag {
+	res := make([]imap.Flag, 0, len(flags))
+	for _, flag := range flags {
+		res = append(res, imap.Flag(flag))
+	}
+	return res
+}
 
-	//TODO implement me
-	panic("implement me")
+func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.SelectData, error) {
+	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Select")
+	defer task.End()
+
+	if s.selectedFolderID != (ulid.ULID{}) {
+		if err := s.unselect(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	info, err := s.b.messages.FetchFolderInfo(ctx, s.accountID, mailbox,
+		true, true, true)
+	if err != nil {
+		return nil, s.asIMAPError(err)
+	}
+
+	// TODO: Use read-only flag for optimizations.
+	s.selectedFolderID = info.Folder.ID_
+	s.readOnly = options.ReadOnly
+
+	return &imap.SelectData{
+		Flags:          stringListAsFlags(info.UsedFlags),
+		PermanentFlags: stringListAsFlags(append(info.UsedFlags, `\*`)),
+		NumMessages:    info.NumMessages,
+		UIDNext:        imap.UID(info.Folder.UIDNext_),
+		UIDValidity:    info.Folder.UIDValidity_,
+		List: &imap.ListData{
+			Attrs:   nil,
+			Delim:   rune(folder.PathSeparator[0]),
+			Mailbox: info.Folder.Path_,
+		},
+	}, nil
 }
 
 func (s *session) Status(mailbox string, options *imap.StatusOptions) (*imap.StatusData, error) {
@@ -71,6 +107,10 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 func (s *session) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Move")
 	defer task.End()
+	ctx = contextlog.WithLogger(ctx, s.log.WithLazy(
+		zap.String("imap_command", "MOVE"),
+		zap.Stringer("imap_numset", numSet),
+		zap.String("imap_dest", dest)))
 
 	var uids imap.UIDSet
 	var err error
@@ -124,6 +164,10 @@ func (s *session) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string
 func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Move")
 	defer task.End()
+	ctx = contextlog.WithLogger(ctx, s.log.WithLazy(
+		zap.String("imap_command", "COPY"),
+		zap.Stringer("imap_numset", numSet),
+		zap.String("imap_dest", dest)))
 
 	var uids imap.UIDSet
 	var err error
@@ -166,11 +210,32 @@ func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) 
 }
 
 func (s *session) Append(mailbox string, r imap.LiteralReader, options *imap.AppendOptions) (*imap.AppendData, error) {
-	//ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Append")
-	//defer task.End()
+	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Append")
+	defer task.End()
+	ctx = contextlog.WithLogger(ctx, s.log.WithLazy(
+		zap.String("imap_command", "APPEND"),
+		zap.Int64("imap_size", r.Size())))
 
-	//TODO implement me
-	panic("implement me")
+	flags := make([]string, len(options.Flags))
+	for i, flag := range options.Flags {
+		flags[i] = string(flag)
+	}
+
+	createdData, err := s.b.messages.CreateMessage(
+		ctx, s.accountID, mailbox,
+		options.Time, flags,
+		r.Size(), r)
+	if err != nil {
+		return nil, s.asIMAPError(err)
+	}
+
+	// TODO: \Recent flag handling.
+	s.b.updateManager.NewMessages(createdData.Folder.ID_, imap.UIDSetNum(imap.UID(createdData.Entry.UID_)))
+
+	return &imap.AppendData{
+		UID:         imap.UID(createdData.Entry.UID_),
+		UIDValidity: createdData.Folder.UIDValidity_,
+	}, nil
 }
 
 func (s *session) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error {

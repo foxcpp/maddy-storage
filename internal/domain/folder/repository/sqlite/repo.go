@@ -479,9 +479,9 @@ func (r repo) NextUID(ctx context.Context, folderID ulid.ULID, n int) ([]uint32,
 
 	err := r.db.Gorm(ctx).Raw(`
 		UPDATE folders 
-		SET uidnext = uidnext + ?
+		SET uid_next = uid_next + ?
 		WHERE folders.id = ?
-		RETURNING uidnext - 1`, n, folderID).Scan(&lastUID).Error
+		RETURNING uid_next - 1`, n, folderID).Scan(&lastUID).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, folder.ErrNotFound
@@ -489,9 +489,9 @@ func (r repo) NextUID(ctx context.Context, folderID ulid.ULID, n int) ([]uint32,
 		return nil, storeerrors.InternalError{Reason: err}
 	}
 
-	uids := make([]uint32, n)
+	uids := make([]uint32, 0, n)
 	for i := lastUID - uint32(n) + 1; i <= lastUID; i++ {
-		uids[i] = i
+		uids = append(uids, i)
 	}
 
 	return uids, nil

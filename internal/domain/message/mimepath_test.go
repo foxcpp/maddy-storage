@@ -6,6 +6,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPath_IsChildOf(t *testing.T) {
+	require.True(t, Path{1}.IsChildOf(Path{}))
+	require.False(t, Path{}.IsChildOf(Path{1}))
+	require.True(t, Path{1, 2}.IsChildOf(Path{1}))
+	require.False(t, Path{1, 2}.IsChildOf(Path{1, 2, 3}))
+	require.False(t, Path{1, 2, 3}.IsChildOf(Path{1, 2, 3}))
+	require.False(t, Path{1, 2, 3, 4, 5}.IsChildOf(Path{1, 2, 3}))
+	require.False(t, Path{1, 2, 4, 4, 5}.IsChildOf(Path{1, 2, 3}))
+}
+
+func TestPath_IsDescendantOf(t *testing.T) {
+	require.True(t, Path{1}.IsDescendantOf(Path{}))
+	require.False(t, Path{}.IsDescendantOf(Path{1}))
+	require.True(t, Path{1, 2}.IsDescendantOf(Path{1}))
+	require.False(t, Path{1, 2}.IsDescendantOf(Path{1, 2, 3}))
+	require.False(t, Path{1, 2, 3}.IsDescendantOf(Path{1, 2, 3}))
+	require.True(t, Path{1, 2, 3, 4, 5}.IsDescendantOf(Path{1, 2, 3}))
+	require.False(t, Path{1, 2, 4, 4, 5}.IsDescendantOf(Path{1, 2, 3}))
+}
+
 func TestPathFromString(t *testing.T) {
 	cases := []struct {
 		str     string

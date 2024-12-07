@@ -32,8 +32,11 @@ type session struct {
 }
 
 func (s *session) Unauthenticate() error {
+	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Unauthenticate")
+	defer task.End()
+
 	if s.selectedFolderID != (ulid.ULID{}) {
-		if err := s.Unselect(); err != nil {
+		if err := s.unselect(ctx); err != nil {
 			return err
 		}
 	}
@@ -43,6 +46,9 @@ func (s *session) Unauthenticate() error {
 }
 
 func (s *session) Namespace() (*imap.NamespaceData, error) {
+	//ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Namespace")
+	//defer task.End()
+
 	return &imap.NamespaceData{
 		Personal: []imap.NamespaceDescriptor{
 			{

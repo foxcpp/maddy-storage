@@ -8,6 +8,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	mess "github.com/foxcpp/go-imap-mess/v2"
+	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
 	"github.com/foxcpp/maddy-storage/internal/usecase"
 	"github.com/oklog/ulid/v2"
@@ -29,7 +30,7 @@ type Backend struct {
 
 	accounts usecase.Account
 	folders  usecase.Folder
-	messages usecase.Message
+	messages messageusecase.Usecase
 
 	updateManager *mess.Manager[ulid.ULID]
 }
@@ -39,7 +40,7 @@ func New(
 	log *zap.Logger,
 	accounts usecase.Account,
 	folders usecase.Folder,
-	messages usecase.Message,
+	messages messageusecase.Usecase,
 ) *Backend {
 	return &Backend{
 		cfg:      cfg,
@@ -83,17 +84,17 @@ func (b *Backend) Options() *imapserver.Options {
 	opts := &imapserver.Options{
 		NewSession: b.newSession,
 		Caps: imap.CapSet{
-			imap.CapIMAP4rev1:        {},
-			imap.CapIMAP4rev2:        {},
-			imap.CapLiteralPlus:      {},
-			imap.CapNamespace:        {},
-			imap.CapUIDPlus:          {},
-			imap.CapESearch:          {},
-			imap.CapSearchRes:        {},
-			imap.CapListExtended:     {},
-			imap.CapListStatus:       {},
-			imap.CapMove:             {},
-			imap.CapBinary:           {},
+			imap.CapIMAP4rev1:    {},
+			imap.CapIMAP4rev2:    {},
+			imap.CapLiteralPlus:  {},
+			imap.CapNamespace:    {},
+			imap.CapUIDPlus:      {},
+			imap.CapESearch:      {},
+			imap.CapSearchRes:    {},
+			imap.CapListExtended: {},
+			imap.CapListStatus:   {},
+			imap.CapMove:         {},
+			//imap.CapBinary:           {},
 			imap.CapCreateSpecialUse: {},
 			imap.CapUnauthenticate:   {},
 		},

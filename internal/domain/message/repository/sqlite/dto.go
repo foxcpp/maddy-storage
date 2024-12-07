@@ -10,30 +10,31 @@ import (
 )
 
 type msgDTO struct {
-	ID        ulid.ULID `gorm:"id,primaryKey"`
-	Date      time.Time `gorm:"date"`
-	CreatedAt time.Time `gorm:"created_at,autoCreateTime:false"`
-	UpdatedAt time.Time `gorm:"updated_at,autoUpdateTime:false"`
-	Meta      []byte    `gorm:"meta"`    // JSON
-	Content   []byte    `gorm:"content"` // JSON
+	ID        ulid.ULID `gorm:"column:id;primaryKey"`
+	Date      time.Time `gorm:"column:date"`
+	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime:false"`
+	UpdatedAt time.Time `gorm:"column:updated_at;autoUpdateTime:false"`
+	Meta      []byte    `gorm:"column:meta"`    // JSON
+	Content   []byte    `gorm:"column:content"` // JSON
 }
 
 func (msgDTO) TableName() string { return "messages" }
 
 type msgFlagDTO struct {
-	MsgID ulid.ULID `gorm:"message_id"`
-	Flag  string    `gorm:"flag"`
+	MessageID ulid.ULID `gorm:"column:message_id;primaryKey"`
+	Flag      string    `gorm:"column:flag;primaryKey"`
 }
 
 func (msgFlagDTO) TableName() string { return "message_flags" }
 
 type msgPartDTO struct {
-	ID             ulid.ULID `gorm:"id,primaryKey"`
-	MessageID      ulid.ULID `gorm:"message_id"`
-	Path           string    `gorm:"path"`
-	Content        []byte    `gorm:"content"` // JSON
-	Inline         []byte    `gorm:"inline"`  // BLOB
-	ExternalBlobID string    `gorm:"external_blob_id"`
+	ID             ulid.ULID `gorm:"column:id;primaryKey"`
+	MessageID      ulid.ULID `gorm:"column:message_id"`
+	Order          int       `gorm:"column:order_"`
+	Path           string    `gorm:"column:path"`
+	Content        []byte    `gorm:"column:content"` // JSON
+	Inline         []byte    `gorm:"column:inline"`  // BLOB
+	ExternalBlobID string    `gorm:"column:external_blob_id"`
 }
 
 func (msgPartDTO) TableName() string { return "message_parts" }
@@ -59,8 +60,8 @@ func asDTO(model *message.Msg) (*msgDTO, []msgFlagDTO, []msgPartDTO, error) {
 	flagsDto := make([]msgFlagDTO, len(model.Flags_))
 	for i, f := range model.Flags_ {
 		flagsDto[i] = msgFlagDTO{
-			MsgID: msgDto.ID,
-			Flag:  f,
+			MessageID: msgDto.ID,
+			Flag:      f,
 		}
 	}
 	partsDto := make([]msgPartDTO, len(model.Parts_))
@@ -73,6 +74,7 @@ func asDTO(model *message.Msg) (*msgDTO, []msgFlagDTO, []msgPartDTO, error) {
 		partsDto[i] = msgPartDTO{
 			ID:             p.ID_,
 			MessageID:      msgDto.ID,
+			Order:          p.Order,
 			Path:           p.Path_.String(),
 			Content:        contentJson,
 			Inline:         p.Inline_,
@@ -119,6 +121,7 @@ func asModel(msgDTO *msgDTO, flagsDTO []msgFlagDTO, partsDTO []msgPartDTO) (*mes
 
 		msg.Parts_[i] = message.Part{
 			ID_:             p.ID,
+			Order:           p.Order,
 			Path_:           path,
 			Inline_:         p.Inline,
 			ExternalBlobID_: p.ExternalBlobID,

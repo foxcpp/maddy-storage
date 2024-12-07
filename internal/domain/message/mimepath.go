@@ -32,12 +32,52 @@ func (p Path) NextSibling() Path {
 	return sibling
 }
 
+func (p Path) Equals(other Path) bool {
+	if len(p) != len(other) {
+		return false
+	}
+	for i := range p {
+		if p[i] != other[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func (p Path) FirstChild() Path {
 	child := make(Path, len(p)+1)
 	copy(child[:], p)
 
 	child[len(child)-1] = 1
 	return child
+}
+
+func (p Path) IsChildOf(parent Path) bool {
+	if len(p)-1 != len(parent) {
+		return false
+	}
+	for i := range parent {
+		if p[i] != parent[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (p Path) IsDescendantOf(ancestor Path) bool {
+	if len(ancestor) == 0 && len(p) > 0 {
+		return true
+	}
+	if len(p) <= len(ancestor) {
+		return false
+	}
+
+	for i := 0; i < len(ancestor); i++ {
+		if p[i] != ancestor[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (p Path) String() string {

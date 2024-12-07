@@ -1,29 +1,13 @@
-package usecase
+package messageusecase
 
 import (
 	"context"
 
-	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 )
-
-type Message struct {
-	folderRepo folder.Repo
-	msgRepo    message.Repo
-	changeLog  changelog.Repo
-}
-
-func NewMessage(folder folder.Repo, msg message.Repo, changeLog changelog.Repo) Message {
-	return Message{
-		folderRepo: folder,
-		msgRepo:    msg,
-		changeLog:  changeLog,
-	}
-}
 
 type CopyData struct {
 	Source        *folder.Folder
@@ -32,17 +16,17 @@ type CopyData struct {
 	TargetEntries []folder.Entry
 }
 
-func (m Message) CopyByUID(ctx context.Context, accountID ulid.ULID, uids []folder.UIDRange, sourceID ulid.ULID, targetPath string) (*CopyData, error) {
+func (uc *Usecase) CopyByUID(ctx context.Context, accountID ulid.ULID, uids []folder.UIDRange, sourceID ulid.ULID, targetPath string) (*CopyData, error) {
 	log := contextlog.FromContext(ctx)
 
-	sourceFolder, err := m.folderRepo.GetByID(ctx, sourceID)
+	sourceFolder, err := uc.folderRepo.GetByID(ctx, sourceID)
 	if err != nil {
 		return nil, err
 	}
 	if sourceFolder.AccountID_ != accountID {
 		return nil, folder.ErrNotFound
 	}
-	targetFolder, err := m.folderRepo.GetByPath(ctx, accountID, targetPath)
+	targetFolder, err := uc.folderRepo.GetByPath(ctx, accountID, targetPath)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +38,7 @@ func (m Message) CopyByUID(ctx context.Context, accountID ulid.ULID, uids []fold
 		Target: targetFolder,
 	}
 
-	sourceEntries, err := m.folderRepo.GetEntryByUIDRange(ctx, sourceFolder.ID_, uids...)
+	sourceEntries, err := uc.folderRepo.GetEntryByUIDRange(ctx, sourceFolder.ID_, uids...)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +47,7 @@ func (m Message) CopyByUID(ctx context.Context, accountID ulid.ULID, uids []fold
 		msgIDs = append(msgIDs, sourceEntry.MsgID_)
 	}
 
-	msgs, err := m.msgRepo.GetByIDs(ctx, msgIDs...)
+	msgs, err := uc.msgRepo.GetByIDs(ctx, msgIDs...)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +61,7 @@ func (m Message) CopyByUID(ctx context.Context, accountID ulid.ULID, uids []fold
 
 	log.Debug("resolved uid range to entries", zap.Stringers("entries", sourceEntries))
 
-	targetUIDs, err := m.folderRepo.NextUID(ctx, targetFolder.ID_, len(sourceEntries))
+	targetUIDs, err := uc.folderRepo.NextUID(ctx, targetFolder.ID_, len(sourceEntries))
 	if err != nil {
 		// CONSISTENCY: Folder might be gone, will return folder.ErrNotFound
 		return nil, err
@@ -101,11 +85,11 @@ func (m Message) CopyByUID(ctx context.Context, accountID ulid.ULID, uids []fold
 	// CONSISTENCY: Might create dangling messages if next operation fails, will be GC'ed later.
 	// TODO: Might create messages that include missing external parts. Need to figure out
 	// a way to defend against it.
-	if err := m.msgRepo.Create(ctx, msgs...); err != nil {
+	if err := uc.msgRepo.Create(ctx, msgs...); err != nil {
 		return nil, err
 	}
 
-	if err := m.folderRepo.CreateEntry(ctx, targetEntries...); err != nil {
+	if err := uc.folderRepo.CreateEntry(ctx, targetEntries...); err != nil {
 		return nil, err
 	}
 
@@ -130,17 +114,17 @@ func (m Message) CopyByUID(ctx context.Context, accountID ulid.ULID, uids []fold
 	return copyData, nil
 }
 
-func (m Message) MoveByUID(ctx context.Context, accountID ulid.ULID, uids []folder.UIDRange, sourceID ulid.ULID, targetPath string) (*CopyData, error) {
+func (uc *Usecase) MoveByUID(ctx context.Context, accountID ulid.ULID, uids []folder.UIDRange, sourceID ulid.ULID, targetPath string) (*CopyData, error) {
 	log := contextlog.FromContext(ctx)
 
-	sourceFolder, err := m.folderRepo.GetByID(ctx, sourceID)
+	sourceFolder, err := uc.folderRepo.GetByID(ctx, sourceID)
 	if err != nil {
 		return nil, err
 	}
 	if sourceFolder.AccountID_ != accountID {
 		return nil, folder.ErrNotFound
 	}
-	targetFolder, err := m.folderRepo.GetByPath(ctx, accountID, targetPath)
+	targetFolder, err := uc.folderRepo.GetByPath(ctx, accountID, targetPath)
 	if err != nil {
 		return nil, err
 	}
@@ -152,14 +136,14 @@ func (m Message) MoveByUID(ctx context.Context, accountID ulid.ULID, uids []fold
 		Target: targetFolder,
 	}
 
-	sourceEntries, err := m.folderRepo.GetEntryByUIDRange(ctx, sourceFolder.ID_, uids...)
+	sourceEntries, err := uc.folderRepo.GetEntryByUIDRange(ctx, sourceFolder.ID_, uids...)
 	if err != nil {
 		return nil, err
 	}
 
 	log.Debug("resolved uid range to entries", zap.Stringers("entries", sourceEntries))
 
-	targetUIDs, err := m.folderRepo.NextUID(ctx, targetFolder.ID_, len(sourceEntries))
+	targetUIDs, err := uc.folderRepo.NextUID(ctx, targetFolder.ID_, len(sourceEntries))
 	if err != nil {
 		// CONSISTENCY: Folder might be gone, will return folder.ErrNotFound
 		return nil, err
@@ -172,7 +156,7 @@ func (m Message) MoveByUID(ctx context.Context, accountID ulid.ULID, uids []fold
 
 	log.Debug("created target entries for move", zap.Stringers("entries", targetEntries))
 
-	if err := m.folderRepo.ReplaceEntries(ctx, sourceEntries, targetEntries); err != nil {
+	if err := uc.folderRepo.ReplaceEntries(ctx, sourceEntries, targetEntries); err != nil {
 		return nil, err
 	}
 

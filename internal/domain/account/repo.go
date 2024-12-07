@@ -8,7 +8,10 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
-var ErrNotFound = storeerrors.NotExistsError{Text: "no such account"}
+var (
+	ErrNotFound      = storeerrors.NotExistsError{Text: "no such account"}
+	ErrAlreadyExists = storeerrors.AlreadyExistsError{Text: "account with name already exists"}
+)
 
 type Order int
 

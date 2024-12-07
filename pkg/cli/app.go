@@ -1,6 +1,7 @@
 package storagecli
 
 import (
+	usecase2 "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/usecase"
 	"github.com/urfave/cli/v2"
 )
@@ -10,7 +11,7 @@ type AppProvider func(ctx *cli.Context) (App, error)
 type App struct {
 	Accounts usecase.Account
 	Folders  usecase.Folder
-	Message  usecase.Message
+	Message  usecase2.Usecase
 }
 
 func BuildCommands(provider AppProvider) cli.Commands {

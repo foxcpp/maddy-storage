@@ -77,6 +77,7 @@ CREATE TABLE message_parts (
     message_id BLOB NOT NULL
         REFERENCES messages(id)
             ON UPDATE CASCADE ON DELETE CASCADE,
+    order_ INTEGER NOT NULL DEFAULT 0,
     path TEXT NOT NULL DEFAULT '1',
     content BLOB NOT NULL DEFAULT x'7b7d', -- {}
     inline BLOB DEFAULT NULL,

@@ -8,12 +8,15 @@ import (
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/account"
 	accountsqlite "github.com/foxcpp/maddy-storage/internal/domain/account/repository/sqlite"
+	"github.com/foxcpp/maddy-storage/internal/domain/blob"
+	storefs "github.com/foxcpp/maddy-storage/internal/domain/blob/store/fs"
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
+	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/usecase"
 	"github.com/foxcpp/maddy-storage/pkg/imap2"
@@ -23,6 +26,7 @@ import (
 func main() {
 	addr := flag.String("listen", "127.0.0.1:143", "addr:port to listen on")
 	sqliteDB := flag.String("sqlite", "", "path to sqlite DB to operate on")
+	blobFS := flag.String("blobfs", "", "path to store message blobs in")
 	flag.Parse()
 
 	logger, err := zap.NewDevelopment()
@@ -36,7 +40,10 @@ func main() {
 		folderRepo    folder.Repo
 		messageRepo   message.Repo
 		changelogRepo changelog.Repo
+		blobStore     blob.Store
+		tempBlobStore blob.Store
 	)
+	tempBlobStore = storefs.New(os.TempDir())
 	if *sqliteDB != "" {
 		db, err := sqlite.New(*sqliteDB, sqlite.Cfg{})
 		if err != nil {
@@ -47,6 +54,9 @@ func main() {
 		folderRepo = foldersqlite.New(db)
 		messageRepo = messagesqlite.New(db)
 		changelogRepo = changelogsqlite.New(db)
+	}
+	if *blobFS != "" {
+		blobStore = storefs.New(*blobFS)
 	}
 
 	cfg := imap2.Config{
@@ -60,7 +70,8 @@ func main() {
 		cfg, logger,
 		usecase.NewAccount(accountsRepo, usecase.StubAuth{}, changelogRepo),
 		usecase.NewFolder(folderRepo, changelogRepo),
-		usecase.NewMessage(folderRepo, messageRepo, changelogRepo),
+		messageusecase.New(messageusecase.Config{},
+			folderRepo, messageRepo, blobStore, tempBlobStore, changelogRepo),
 	)
 	srv := imapserver.New(backend.Options())
 	defer srv.Close()
