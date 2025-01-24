@@ -7,10 +7,12 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
-	mess "github.com/foxcpp/go-imap-mess/v2"
+	"github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
-	"github.com/foxcpp/maddy-storage/internal/usecase"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -28,28 +30,31 @@ type Backend struct {
 	cfg Config
 	log *zap.Logger
 
-	accounts usecase.Account
-	folders  usecase.Folder
+	accounts accountusecase.Account
+	folders  folderusecase.Folder
 	messages messageusecase.Usecase
-
-	updateManager *mess.Manager[ulid.ULID]
+	recents  recent.Tracker
+	watcher  folder.Watcher
 }
 
 func New(
 	cfg Config,
 	log *zap.Logger,
-	accounts usecase.Account,
-	folders usecase.Folder,
+	accounts accountusecase.Account,
+	folders folderusecase.Folder,
 	messages messageusecase.Usecase,
+	recents recent.Tracker,
+	watcher folder.Watcher,
 ) *Backend {
 	return &Backend{
-		cfg:      cfg,
-		log:      log,
+		cfg: cfg,
+		log: log,
+
 		accounts: accounts,
 		folders:  folders,
 		messages: messages,
-
-		updateManager: mess.NewManager[ulid.ULID](),
+		recents:  recents,
+		watcher:  watcher,
 	}
 }
 
@@ -94,7 +99,12 @@ func (b *Backend) Options() *imapserver.Options {
 			imap.CapListExtended: {},
 			imap.CapListStatus:   {},
 			imap.CapMove:         {},
-			//imap.CapBinary:           {},
+			imap.CapStatusSize:   {},
+			imap.CapSASLIR:       {},
+			imap.CapEnable:       {},
+			imap.CapUnselect:     {},
+			imap.CapIdle:         {},
+
 			imap.CapCreateSpecialUse: {},
 			imap.CapUnauthenticate:   {},
 		},

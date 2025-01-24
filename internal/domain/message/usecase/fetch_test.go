@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -15,20 +16,27 @@ import (
 )
 
 func TestOffsetWriter_Write(t *testing.T) {
-	stream := strings.Repeat("A", 4092) +
-		strings.Repeat("B", 4396) +
-		strings.Repeat("C", 8120)
-	var output bytes.Buffer
-	w := offsetWriter{
-		W:      &output,
-		Offset: 4092,
-		Size:   4396,
-	}
-	if _, err := io.Copy(&w, strings.NewReader(stream)); err != nil {
-		t.Fatal(err)
-	}
+	for range 1000 {
+		offset := rand.Int31n(8192)
+		size := rand.Int31n(8192)
+		trailer := rand.Int31n(8192)
 
-	require.Equal(t, strings.Repeat("B", 4396), output.String())
+		stream := strings.Repeat("A", int(offset)) +
+			strings.Repeat("B", int(size)) +
+			strings.Repeat("C", int(trailer))
+
+		var output bytes.Buffer
+		w := offsetWriter{
+			W:      &output,
+			Offset: int64(offset),
+			Size:   int64(size),
+		}
+		if _, err := io.CopyBuffer(&w, strings.NewReader(stream), make([]byte, int(rand.Int31n(8192)))); err != nil {
+			t.Fatal(err)
+		}
+
+		require.Equal(t, strings.Repeat("B", int(size)), output.String())
+	}
 }
 
 func TestUsecase_WritePart(t *testing.T) {
@@ -62,7 +70,8 @@ func TestUsecase_WritePart(t *testing.T) {
 					Opts: WriteOptions{
 						Specifier: PartBody,
 					},
-					Result: "body4444",
+					Result: `body4444
+`,
 				},
 				{
 					Name: "empty path - header only",
@@ -112,6 +121,8 @@ Subject: s4444
 					Path: []int{},
 					Opts: WriteOptions{
 						Specifier: PartHeader | PartBody,
+						Offset:    2,
+						Size:      5,
 					},
 					Result: `om: U`,
 				},
@@ -120,6 +131,8 @@ Subject: s4444
 					Path: []int{},
 					Opts: WriteOptions{
 						Specifier: PartBody,
+						Offset:    2,
+						Size:      5,
 					},
 					Result: `dy444`,
 				},
@@ -200,7 +213,7 @@ hello
 Content-Type: message/rfc822
 
 From: sub@domain.org
-Date: Sun, 12 Aug 2012 12:34:56 +0300
+Date: Sun, 12 Aug 2012 12:34:56 +0400
 Subject: submsg
 Content-Type: multipart/alternative; boundary="sub1"
 
@@ -274,7 +287,7 @@ Hello another world
 						Specifier: PartHeader,
 					},
 					Result: `From: sub@domain.org
-Date: Sun, 12 Aug 2012 12:34:56 +0300
+Date: Sun, 12 Aug 2012 12:34:56 +0400
 Subject: submsg
 Content-Type: multipart/alternative; boundary="sub1"
 
@@ -334,10 +347,7 @@ Hello another world
 			ctx := contextlog.WithLogger(context.Background(), zaptest.NewLogger(t))
 
 			crlfText := strings.ReplaceAll(c.Text, "\n", "\r\n")
-			storedMsg, err := uc.bufferStoreMessage(
-				ctx, acct.ID_,
-				now, []string{"$testFlag"},
-				int64(len(crlfText)), strings.NewReader(crlfText))
+			storedMsg, err := uc.bufferStoreMessage(ctx, acct.ID, 0, now, []string{"$testFlag"}, int64(len(crlfText)), strings.NewReader(crlfText))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -346,13 +356,22 @@ Hello another world
 				t.Run(subcase.Name, func(t *testing.T) {
 					crlfResult := strings.ReplaceAll(subcase.Result, "\n", "\r\n")
 
+					expectedSize, err := uc.PartSize(ctx, storedMsg, subcase.Path, subcase.Opts)
+					if err != nil {
+						t.Fatal(err)
+					}
+
 					var out bytes.Buffer
-					err := uc.WritePart(ctx, storedMsg, subcase.Path, &out, subcase.Opts)
+					err = uc.WritePart(ctx, storedMsg, subcase.Path, &out, subcase.Opts)
 					if err != nil {
 						t.Fatal(err)
 					}
 
 					require.Equal(t, crlfResult, out.String())
+
+					t.Logf("Part dump:\n%v", out.String())
+					require.Equal(t, int(expectedSize), out.Len(),
+						"PartSize value does not match the actual returned part size")
 				})
 			}
 		})

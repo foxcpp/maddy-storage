@@ -1,6 +1,7 @@
 package messageusecase
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"sort"
@@ -10,23 +11,28 @@ import (
 
 	"github.com/foxcpp/maddy-storage/internal/domain/account"
 	accountsqlite "github.com/foxcpp/maddy-storage/internal/domain/account/repository/sqlite"
+	"github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/blob"
 	storememory "github.com/foxcpp/maddy-storage/internal/domain/blob/store/memory"
 	changelogsqlite "github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	foldersql "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlcommon"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
+	searchersqlcommon "github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlcommon"
 	"github.com/foxcpp/maddy-storage/internal/domain/metadata"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
-	"github.com/foxcpp/maddy-storage/internal/usecase"
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 )
 
 func initMessageTestUsecase(t *testing.T) (Usecase, blob.Store, *account.Account, *folder.Folder) {
+	ctx := contextlog.WithLogger(context.Background(), zaptest.NewLogger(t))
+
 	db, err := sqlite.NewMemory(sqlite.Cfg{})
 	if err != nil {
 		t.Fatal(err)
@@ -34,27 +40,39 @@ func initMessageTestUsecase(t *testing.T) (Usecase, blob.Store, *account.Account
 	blobStore := storememory.New()
 
 	acctRepo := accountsqlite.New(db)
-	folderRepo := foldersqlite.New(db)
+	folderRepo := foldersql.New(db)
+	imapRepo := foldersqlite.New(db)
 	msgRepo := messagesqlite.New(db)
 	changelogRepo := changelogsqlite.New(db)
 
-	acctUC := usecase.NewAccount(acctRepo, usecase.StubAuth{}, changelogRepo)
-	acct, err := acctUC.Create(context.Background(), "test_account")
+	acctUC := accountusecase.NewAccount(
+		accountusecase.Cfg{},
+		acctRepo,
+		folderRepo,
+		imapRepo,
+		accountusecase.StubAuth{},
+		changelogRepo,
+	)
+	acct, err := acctUC.Create(ctx, "test_account")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	folderUC := usecase.NewFolder(folderRepo, changelogRepo)
-	inbox, err := folderUC.Create(context.Background(), acct.ID_, "INBOX", folder.RoleNone, false)
+	searcher := searchersqlcommon.New(db, searchersqlcommon.Cfg{})
+
+	folderUC := folderusecase.New(folderRepo, changelogRepo, searcher)
+	inbox, err := folderUC.Create(ctx, acct.ID, "INBOX", folder.RoleNone, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	uc := New(
 		Config{},
-		folderRepo, msgRepo,
+		folderRepo, imapRepo, msgRepo,
+		searcher,
 		blobStore, blobStore,
-		changelogRepo)
+		changelogRepo,
+	)
 
 	return uc, blobStore, acct, inbox
 }
@@ -64,6 +82,7 @@ func TestMessage_CreateMessage(t *testing.T) {
 	now := time.Now().In(time.UTC)
 
 	cases := []struct {
+		Skip      bool
 		Name      string
 		Text      string
 		Data      *message.Msg
@@ -73,18 +92,19 @@ func TestMessage_CreateMessage(t *testing.T) {
 			Name: "no ct plain text",
 			Text: testMessageNoCT,
 			Data: &message.Msg{
-				ReceivedAt_: now,
-				Meta_:       metadata.New(),
-				Flags_:      []string{"$testFlag"},
-				Content_:    &message.ContentData{},
-				Parts_: []message.Part{
+				ReceivedAt: now,
+				Meta:       metadata.New(),
+				Flags:      []string{"$testFlag"},
+				TotalSize:  99,
+				Content:    &message.ContentData{},
+				Parts: []message.Part{
 					{
-						Path_: message.EmptyPath(),
-						Content_: &message.ContentPartData{
+						Path: message.EmptyPath(),
+						Content: &message.ContentPartData{
 							Type:           "text/plain",
-							HeaderSize:     uint32(len(strings.ReplaceAll(testMessageNoCT, "\n", "\r\n")) - 8),
+							HeaderSize:     uint32(len(strings.ReplaceAll(testMessageNoCT, "\n", "\r\n")) - 10),
 							HeaderNumLines: 4,
-							Size:           8,
+							Size:           10,
 							NumLines:       1,
 							Envelope: &message.ContentEnvelope{
 								Date: time.Date(2007, time.March, 24, 23, 0, 00, 00,
@@ -106,18 +126,19 @@ func TestMessage_CreateMessage(t *testing.T) {
 			Name: "text plain envelope",
 			Text: testMessageEnvelope,
 			Data: &message.Msg{
-				ReceivedAt_: now,
-				Meta_:       metadata.New(),
-				Flags_:      []string{"$testFlag"},
-				Content_:    &message.ContentData{},
-				Parts_: []message.Part{
+				ReceivedAt: now,
+				Meta:       metadata.New(),
+				Flags:      []string{"$testFlag"},
+				TotalSize:  381,
+				Content:    &message.ContentData{},
+				Parts: []message.Part{
 					{
-						Path_: message.EmptyPath(),
-						Content_: &message.ContentPartData{
+						Path: message.EmptyPath(),
+						Content: &message.ContentPartData{
 							Type:           "text/plain",
-							HeaderSize:     uint32(len(strings.ReplaceAll(testMessageEnvelope, "\n", "\r\n")) - 4),
+							HeaderSize:     uint32(len(strings.ReplaceAll(testMessageEnvelope, "\n", "\r\n")) - 6),
 							HeaderNumLines: 11,
-							Size:           4,
+							Size:           6,
 							NumLines:       1,
 							Envelope: &message.ContentEnvelope{
 								Date:      time.Date(2007, time.February, 15, 1, 2, 3, 0, time.FixedZone("", 2*3600)),
@@ -143,18 +164,19 @@ func TestMessage_CreateMessage(t *testing.T) {
 			Name: "text plain malformed envelope",
 			Text: testMessageMalformedEnvelope,
 			Data: &message.Msg{
-				ReceivedAt_: now,
-				Meta_:       metadata.New(),
-				Flags_:      []string{"$testFlag"},
-				Content_:    &message.ContentData{},
-				Parts_: []message.Part{
+				ReceivedAt: now,
+				Meta:       metadata.New(),
+				Flags:      []string{"$testFlag"},
+				TotalSize:  100,
+				Content:    &message.ContentData{},
+				Parts: []message.Part{
 					{
-						Path_: message.EmptyPath(),
-						Content_: &message.ContentPartData{
+						Path: message.EmptyPath(),
+						Content: &message.ContentPartData{
 							Type:           "text/plain",
-							HeaderSize:     uint32(len(strings.ReplaceAll(testMessageMalformedEnvelope, "\n", "\r\n")) - 4),
+							HeaderSize:     uint32(len(strings.ReplaceAll(testMessageMalformedEnvelope, "\n", "\r\n")) - 6),
 							HeaderNumLines: 5,
-							Size:           4,
+							Size:           6,
 							NumLines:       1,
 							Envelope: &message.ContentEnvelope{
 								Date:    time.Date(2007, time.February, 15, 1, 2, 3, 0, time.FixedZone("", 2*3600)),
@@ -174,21 +196,24 @@ func TestMessage_CreateMessage(t *testing.T) {
 			Name: "multipart mixed",
 			Text: testMessageMultipart,
 			Data: &message.Msg{
-				ReceivedAt_: now,
-				Meta_:       metadata.New(),
-				Flags_:      []string{"$testFlag"},
-				Content_:    &message.ContentData{},
-				Parts_: []message.Part{
+				ReceivedAt: now,
+				Meta:       metadata.New(),
+				Flags:      []string{"$testFlag"},
+				TotalSize:  217,
+				Content:    &message.ContentData{},
+				Parts: []message.Part{
 					{
-						Path_: message.EmptyPath(),
+						Path:  message.EmptyPath(),
 						Order: 0,
-						Content_: &message.ContentPartData{
+						Content: &message.ContentPartData{
 							Type: "multipart/mixed",
 							Params: map[string]string{
 								"boundary": "foo bar",
 							},
 							HeaderSize:     136,
 							HeaderNumLines: 6,
+							MultipartSize:  26,
+							MultipartLines: 2,
 							Envelope: &message.ContentEnvelope{
 								Date:    time.Date(2007, time.March, 24, 23, 0, 0, 0, time.FixedZone("", 2*3600)),
 								From:    []*message.Address{{Name: "", Address: "user@domain.org"}},
@@ -198,15 +223,17 @@ func TestMessage_CreateMessage(t *testing.T) {
 						},
 					},
 					{
-						Path_: []int{1},
+						Path:  []int{1},
 						Order: 1,
-						Content_: &message.ContentPartData{
-							Type: "text/x-myown",
+						Content: &message.ContentPartData{
+							IsMIMEPart: true,
+							Type:       "text/x-myown",
 							Params: map[string]string{
 								"charset": "us-ascii",
 							},
 							HeaderSize:     48,
 							HeaderNumLines: 2,
+							MultipartLines: 1, // hack
 							Size:           7,
 							NumLines:       1,
 						},
@@ -229,23 +256,26 @@ hello
 		},
 		{
 			Name: "multipart rfc822",
-			Text: testMessageMultipartRFC822,
+			Text: testMessageMultipartRFC822NoPrologueEpilogue,
 			Data: &message.Msg{
-				ReceivedAt_: now,
-				Meta_:       metadata.New(),
-				Flags_:      []string{"$testFlag"},
-				Content_:    &message.ContentData{},
-				Parts_: []message.Part{
+				ReceivedAt: now,
+				Meta:       metadata.New(),
+				Flags:      []string{"$testFlag"},
+				TotalSize:  522,
+				Content:    &message.ContentData{},
+				Parts: []message.Part{
 					{
-						Path_: message.EmptyPath(),
+						Path:  message.EmptyPath(),
 						Order: 0,
-						Content_: &message.ContentPartData{
+						Content: &message.ContentPartData{
 							Type: "multipart/mixed",
 							Params: map[string]string{
 								"boundary": "foo bar",
 							},
 							HeaderSize:     136,
 							HeaderNumLines: 6,
+							MultipartSize:  39,
+							MultipartLines: 3,
 							Envelope: &message.ContentEnvelope{
 								Date: time.Date(2007, time.March, 24, 23, 0, 0, 0,
 									time.FixedZone("", 2*3600)),
@@ -256,26 +286,31 @@ hello
 						},
 					},
 					{
-						Path_: []int{1},
+						Path:  []int{1},
 						Order: 1,
-						Content_: &message.ContentPartData{
-							Type: "text/x-myown",
+						Content: &message.ContentPartData{
+							IsMIMEPart: true,
+							Type:       "text/x-myown",
 							Params: map[string]string{
 								"charset": "us-ascii",
 							},
 							HeaderSize:     48,
 							HeaderNumLines: 2,
+							MultipartLines: 1,
 							Size:           7,
 							NumLines:       1,
 						},
 					},
 					{
-						Path_: []int{2},
+						Path:  []int{2},
 						Order: 2,
-						Content_: &message.ContentPartData{
+						Content: &message.ContentPartData{
+							IsMIMEPart:     true,
 							Type:           "message/rfc822",
 							HeaderSize:     32,
 							HeaderNumLines: 2,
+							MultipartSize:  30,
+							MultipartLines: 4,
 							Size:           134,
 							NumLines:       5,
 							Nested: &message.ContentPartData{
@@ -288,7 +323,7 @@ hello
 								Envelope: &message.ContentEnvelope{
 									Date: time.Date(
 										2012, time.August, 12, 12, 34, 56, 0,
-										time.FixedZone("", 3*3600),
+										time.FixedZone("", 4*3600),
 									),
 									Subject: "submsg",
 									From:    []*message.Address{{Name: "", Address: "sub@domain.org"}},
@@ -299,23 +334,27 @@ hello
 						},
 					},
 					{
-						Path_: []int{2, 1},
+						Path:  []int{2, 1},
 						Order: 3,
-						Content_: &message.ContentPartData{
+						Content: &message.ContentPartData{
+							IsMIMEPart:     true,
 							Type:           "text/html",
 							HeaderSize:     27,
 							HeaderNumLines: 2,
+							MultipartLines: 1,
 							Size:           20,
 							NumLines:       1,
 						},
 					},
 					{
-						Path_: []int{2, 2},
+						Path:  []int{2, 2},
 						Order: 4,
-						Content_: &message.ContentPartData{
+						Content: &message.ContentPartData{
+							IsMIMEPart:     true,
 							Type:           "text/plain",
 							HeaderSize:     28,
 							HeaderNumLines: 2,
+							MultipartLines: 1,
 							Size:           21,
 							NumLines:       1,
 						},
@@ -337,7 +376,7 @@ hello
 				"2": `Content-Type: message/rfc822
 
 From: sub@domain.org
-Date: Sun, 12 Aug 2012 12:34:56 +0300
+Date: Sun, 12 Aug 2012 12:34:56 +0400
 Subject: submsg
 Content-Type: multipart/alternative; boundary="sub1"
 
@@ -356,15 +395,16 @@ Hello another world
 			Name: "rfc822",
 			Text: testMessageRFC822,
 			Data: &message.Msg{
-				ReceivedAt_: now,
-				Meta_:       metadata.New(),
-				Flags_:      []string{"$testFlag"},
-				Content_:    &message.ContentData{},
-				Parts_: []message.Part{
+				ReceivedAt: now,
+				Meta:       metadata.New(),
+				Flags:      []string{"$testFlag"},
+				TotalSize:  206,
+				Content:    &message.ContentData{},
+				Parts: []message.Part{
 					{
-						Path_: message.EmptyPath(),
+						Path:  message.EmptyPath(),
 						Order: 0,
-						Content_: &message.ContentPartData{
+						Content: &message.ContentPartData{
 							Type:           "message/rfc822",
 							HeaderSize:     113,
 							HeaderNumLines: 5,
@@ -378,17 +418,17 @@ Hello another world
 						},
 					},
 					{
-						Path_: []int{1},
+						Path:  []int{1},
 						Order: 1,
-						Content_: &message.ContentPartData{
+						Content: &message.ContentPartData{
 							Type:           "text/plain",
 							HeaderSize:     80,
 							HeaderNumLines: 4,
-							Size:           11,
+							Size:           13,
 							NumLines:       1,
 							Envelope: &message.ContentEnvelope{
 								Date: time.Date(2012, time.August, 12, 12, 34, 56, 0,
-									time.FixedZone("", 3*3600)),
+									time.FixedZone("", 4*3600)),
 								Subject: "submsg",
 								From:    []*message.Address{{Name: "", Address: "sub@domain.org"}},
 								Sender:  []*message.Address{{Name: "", Address: "sub@domain.org"}},
@@ -406,25 +446,27 @@ Content-Type: message/rfc822
 
 `,
 				"1": `From: sub@domain.org
-Date: Sun, 12 Aug 2012 12:34:56 +0300
+Date: Sun, 12 Aug 2012 12:34:56 +0400
 Subject: submsg
 
-Hello world`,
+Hello world
+`,
 			},
 		},
 		{
 			Name: "double rfc822",
 			Text: testMessageRFC822Double,
 			Data: &message.Msg{
-				ReceivedAt_: now,
-				Meta_:       metadata.New(),
-				Flags_:      []string{"$testFlag"},
-				Content_:    &message.ContentData{},
-				Parts_: []message.Part{
+				ReceivedAt: now,
+				Meta:       metadata.New(),
+				Flags:      []string{"$testFlag"},
+				TotalSize:  320,
+				Content:    &message.ContentData{},
+				Parts: []message.Part{
 					{
-						Path_: message.EmptyPath(),
+						Path:  message.EmptyPath(),
 						Order: 0,
-						Content_: &message.ContentPartData{
+						Content: &message.ContentPartData{
 							Type:           "message/rfc822",
 							HeaderSize:     113,
 							HeaderNumLines: 5,
@@ -438,9 +480,9 @@ Hello world`,
 						},
 					},
 					{
-						Path_: []int{1},
+						Path:  []int{1},
 						Order: 1,
-						Content_: &message.ContentPartData{
+						Content: &message.ContentPartData{
 							Type:           "message/rfc822",
 							HeaderSize:     114,
 							HeaderNumLines: 5,
@@ -454,17 +496,17 @@ Hello world`,
 						},
 					},
 					{
-						Path_: []int{1, 1},
+						Path:  []int{1, 1},
 						Order: 2,
-						Content_: &message.ContentPartData{
+						Content: &message.ContentPartData{
 							Type:           "text/plain",
 							HeaderSize:     80,
 							HeaderNumLines: 4,
-							Size:           11,
+							Size:           13,
 							NumLines:       1,
 							Envelope: &message.ContentEnvelope{
 								Date: time.Date(2012, time.August, 12, 12, 34, 56, 0,
-									time.FixedZone("", 3*3600)),
+									time.FixedZone("", 4*3600)),
 								Subject: "submsg",
 								From:    []*message.Address{{Name: "", Address: "sub@domain.org"}},
 								Sender:  []*message.Address{{Name: "", Address: "sub@domain.org"}},
@@ -488,10 +530,11 @@ Content-Type: message/rfc822
 
 `,
 				"1.1": `From: sub@domain.org
-Date: Sun, 12 Aug 2012 12:34:56 +0300
+Date: Sun, 12 Aug 2012 12:34:56 +0400
 Subject: submsg
 
-Hello world`,
+Hello world
+`,
 			},
 		},
 	}
@@ -501,7 +544,7 @@ Hello world`,
 
 			crlfText := strings.ReplaceAll(c.Text, "\n", "\r\n")
 
-			msgData, err := uc.CreateMessage(ctx, acct.ID_, "INBOX",
+			msgData, err := uc.CreateMessage(ctx, acct.ID, "INBOX",
 				now, []string{"$testFlag"}, int64(len(crlfText)), strings.NewReader(crlfText))
 			if err != nil {
 				t.Fatal(err)
@@ -510,49 +553,110 @@ Hello world`,
 			gotMsg := msgData.Msg
 
 			gotParts := make(map[string]string)
-			for _, p := range gotMsg.Parts_ {
-				blob := p.Inline_
+			for _, p := range gotMsg.Parts {
+				blob := p.Inline
 				if blob == nil {
-					r, err := blobs.Open(ctx, p.ExternalBlobID_)
+					r, err := blobs.Open(ctx, p.ExternalBlobID)
 					if err != nil {
-						t.Fatalf("failed to open part %v blob: %v", p.Path_, err)
+						t.Fatalf("failed to open part %v blob: %v", p.Path, err)
 					}
 					blob, err = io.ReadAll(r)
 					if err != nil {
-						t.Fatalf("failed to read part %v blob: %v", p.Path_, err)
+						t.Fatalf("failed to read part %v blob: %v", p.Path, err)
 					}
 				}
-				gotParts[p.Path_.String()] = strings.ReplaceAll(string(blob), "\r\n", "\n")
+				gotParts[p.Path.String()] = strings.ReplaceAll(string(blob), "\r\n", "\n")
 			}
 
 			// clean volatile data
-			gotMsg.ID_ = ulid.ULID{}
-			gotMsg.CreatedAt_ = time.Time{}
-			gotMsg.UpdatedAt_ = time.Time{}
-			gotMsg.Meta_ = metadata.New()
-			for i := range gotMsg.Parts_ {
-				gotMsg.Parts_[i].ID_ = ulid.ULID{}
-				gotMsg.Parts_[i].ExternalBlobID_ = ""
-				gotMsg.Parts_[i].Inline_ = nil
+			gotMsg.ID = ulid.ULID{}
+			gotMsg.CreatedAt = time.Time{}
+			gotMsg.UpdatedAt = time.Time{}
+			gotMsg.Meta = metadata.New()
+			for i := range gotMsg.Parts {
+				gotMsg.Parts[i].ID = ulid.ULID{}
+				gotMsg.Parts[i].ExternalBlobID = ""
+				gotMsg.Parts[i].Inline = nil
 			}
-			sort.Slice(gotMsg.Parts_, func(i, j int) bool { return gotMsg.Parts_[i].Order < gotMsg.Parts_[j].Order })
-
-			totalSize := uint32(0)
-			totalLines := int64(0)
-			for _, p := range gotMsg.Parts_ {
-				totalSize += p.Content_.HeaderSize
-				totalSize += p.Content_.Size
-				totalLines += p.Content_.HeaderNumLines
-				totalLines += p.Content_.NumLines
-			}
-			require.Equal(t, len(crlfText), int(totalSize), "total octet size is wrong")
-			require.Equal(t, strings.Count(crlfText, "\r\n"), int(totalLines), "total line count is wrong")
+			sort.Slice(gotMsg.Parts, func(i, j int) bool { return gotMsg.Parts[i].Order < gotMsg.Parts[j].Order })
+			c.Data.Content.Envelope = c.Data.Parts[0].Content.Envelope
 
 			require.Equal(t, c.Data, gotMsg)
 			for partPath, partContents := range gotParts {
 				expectedPart := c.PartBlobs[partPath]
 				require.Equal(t, expectedPart, partContents, "message part [%v]", partPath)
 			}
+
+			totalSize := uint32(0)
+			totalLines := int64(0)
+			for _, p := range gotMsg.Parts {
+				totalSize += p.TotalSize()
+				totalLines += p.TotalLines()
+			}
+			require.Equal(t, len(crlfText), int(totalSize), "total octet size is wrong")
+			require.Equal(t, len(crlfText), int(gotMsg.TotalSize), "total octet size in msg is wrong")
+			require.Equal(t, strings.Count(crlfText, "\r\n"), int(totalLines), "total line count is wrong")
+		})
+	}
+}
+
+func TestMessage_CreateMessage_Lossless(t *testing.T) {
+	uc, _, acct, _ := initMessageTestUsecase(t)
+	now := time.Now().In(time.UTC)
+
+	cases := []struct {
+		Name string
+		Text string
+	}{
+		{
+			Name: "no ct plain text",
+			Text: testMessageNoCT,
+		},
+		{
+			Name: "text plain envelope",
+			Text: testMessageEnvelope,
+		},
+		{
+			Name: "text plain malformed envelope",
+			Text: testMessageMalformedEnvelope,
+		},
+		{
+			Name: "multipart mixed",
+			Text: testMessageMultipart,
+		},
+		{
+			Name: "multipart rfc822",
+			Text: testMessageMultipartRFC822NoPrologueEpilogue,
+		},
+		{
+			Name: "rfc822",
+			Text: testMessageRFC822,
+		},
+		{
+			Name: "double rfc822",
+			Text: testMessageRFC822Double,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.Name, func(t *testing.T) {
+			ctx := contextlog.WithLogger(context.Background(), zaptest.NewLogger(t))
+
+			crlfText := strings.ReplaceAll(c.Text, "\n", "\r\n")
+
+			msgData, err := uc.CreateMessage(ctx, acct.ID, "INBOX",
+				now, []string{"$testFlag"}, int64(len(crlfText)), strings.NewReader(crlfText))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var out bytes.Buffer
+
+			err = uc.WritePart(ctx, msgData.Msg, message.EmptyPath(), &out, WriteOptions{
+				Specifier: PartHeader | PartBody,
+			})
+			require.NoError(t, err)
+
+			require.Equal(t, crlfText, out.String())
 		})
 	}
 }

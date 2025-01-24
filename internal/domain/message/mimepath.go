@@ -32,6 +32,21 @@ func (p Path) NextSibling() Path {
 	return sibling
 }
 
+func (p Path) Parent() Path {
+	if len(p) == 0 {
+		return p
+	}
+	return p[:len(p)-1]
+}
+
+func (p Path) LastComponent() int {
+	if len(p) == 0 {
+		return 0
+	}
+
+	return p[len(p)-1]
+}
+
 func (p Path) Equals(other Path) bool {
 	if len(p) != len(other) {
 		return false

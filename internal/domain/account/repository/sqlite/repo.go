@@ -1,4 +1,4 @@
-package accountsqlite
+package accountsql
 
 import (
 	"context"
@@ -8,16 +8,17 @@ import (
 
 	"github.com/foxcpp/maddy-storage/internal/domain/account"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
+	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
 	"github.com/oklog/ulid/v2"
 	"gorm.io/gorm"
 )
 
 type repo struct {
-	db sqlite.DB
+	db sqlcommon.DB
 }
 
-func New(db sqlite.DB) account.Repo {
+func New(db sqlcommon.DB) account.Repo {
 	return repo{db: db}
 }
 
@@ -33,7 +34,7 @@ func orderKey(o account.Order) string {
 }
 
 func (r repo) GetAll(ctx context.Context, createdAtGt time.Time, order account.Order) ([]account.Account, error) {
-	defer trace.StartRegion(ctx, "account.Repository.GetAll").End()
+	defer trace.StartRegion(ctx, "maddy-storage/account.repository.sqlite.GetAll").End()
 
 	var dto []accountDTO
 
@@ -55,7 +56,7 @@ func (r repo) GetAll(ctx context.Context, createdAtGt time.Time, order account.O
 }
 
 func (r repo) GetByID(ctx context.Context, id ulid.ULID) (*account.Account, error) {
-	defer trace.StartRegion(ctx, "account.Repository.GetByID").End()
+	defer trace.StartRegion(ctx, "maddy-storage/account.repository.sqlite.GetByID").End()
 
 	var dto accountDTO
 
@@ -77,7 +78,7 @@ func (r repo) GetByID(ctx context.Context, id ulid.ULID) (*account.Account, erro
 }
 
 func (r repo) GetByName(ctx context.Context, name string) (*account.Account, error) {
-	defer trace.StartRegion(ctx, "account.Repository.GetByName").End()
+	defer trace.StartRegion(ctx, "maddy-storage/account.repository.sqlite.GetByName").End()
 
 	var dto accountDTO
 
@@ -98,7 +99,7 @@ func (r repo) GetByName(ctx context.Context, name string) (*account.Account, err
 }
 
 func (r repo) Create(ctx context.Context, acct *account.Account) error {
-	defer trace.StartRegion(ctx, "account.Repository.Create").End()
+	defer trace.StartRegion(ctx, "maddy-storage/account.repository.sqlite.Create").End()
 
 	dto := asDTO(acct)
 
@@ -114,7 +115,7 @@ func (r repo) Create(ctx context.Context, acct *account.Account) error {
 }
 
 func (r repo) Delete(ctx context.Context, id ulid.ULID) error {
-	defer trace.StartRegion(ctx, "account.Repository.Delete").End()
+	defer trace.StartRegion(ctx, "maddy-storage/account.repository.sqlite.Delete").End()
 
 	err := r.db.Gorm(ctx).
 		Where("accounts.id = ?", id).

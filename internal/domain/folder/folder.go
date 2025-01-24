@@ -2,7 +2,6 @@ package folder
 
 import (
 	"fmt"
-	"math/rand"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -12,6 +11,7 @@ import (
 )
 
 const PathSeparator = "/"
+const FolderINBOX = "INBOX"
 
 type Role string
 
@@ -42,61 +42,47 @@ var validRoles = map[Role]struct{}{
 }
 
 type Folder struct {
-	ID_        ulid.ULID
-	ParentID_  ulid.ULID // can be empty if at root
-	AccountID_ ulid.ULID
+	ID        ulid.ULID
+	ParentID  ulid.ULID // can be empty if at root
+	AccountID ulid.ULID
 
-	Name_ string // mutable via repository only
-	Path_ string // mutable via repository only
+	Name string // mutable via repository only
+	Path string // mutable via repository only
 
-	Role_       Role // mutable
-	Subscribed_ bool // mutable
-	SortOrder_  uint // mutable
+	Role       Role // mutable
+	Subscribed bool // mutable
+	SortOrder  uint // mutable
 
-	// IMAP-specific
-	UIDValidity_ uint32
-	UIDNext_     uint32 // mutable via repository only
-
-	Metadata_  metadata.Md // mutable
-	CreatedAt_ time.Time
-	UpdatedAt_ time.Time
+	Metadata_ metadata.Md // mutable
+	CreatedAt time.Time
+	UpdatedAt time.Time
 
 	// UpdatedAt when the model is restored to prevent
 	// race conditions in read-modify-save.
 	InitialUpdatedAt time.Time
 }
 
-func (f *Folder) ID() ulid.ULID        { return f.ID_ }
-func (f *Folder) ParentID() ulid.ULID  { return f.ParentID_ }
-func (f *Folder) AccountID() ulid.ULID { return f.AccountID_ }
+func (f *Folder) IsAncestorOf(other *Folder) bool {
+	return strings.HasPrefix(other.Path, f.Path) && other.Path != f.Path
+}
 
-func (f *Folder) Name() string { return f.Name_ }
-func (f *Folder) Path() string { return f.Path_ }
-
-func (f *Folder) Role() Role       { return f.Role_ }
-func (f *Folder) Subscribed() bool { return f.Subscribed_ }
-func (f *Folder) SortOrder() uint  { return f.SortOrder_ }
-
-func (f *Folder) UIDValidity() uint32 { return f.UIDValidity_ }
-func (f *Folder) UIDNext() uint32     { return f.UIDNext_ }
-
-func (f *Folder) Metadata() metadata.Md { return f.Metadata_ }
-func (f *Folder) CreatedAt() time.Time  { return f.CreatedAt_ }
-func (f *Folder) UpdatedAt() time.Time  { return f.UpdatedAt_ }
+func (f *Folder) HasParent() bool {
+	return f.ParentID != ulid.ULID{}
+}
 
 func (f *Folder) SetSubscribed(sub bool) {
-	f.Subscribed_ = sub
-	f.UpdatedAt_ = time.Now()
+	f.Subscribed = sub
+	f.UpdatedAt = time.Now()
 }
 
 func (f *Folder) SetRole(flag Role) {
-	f.Role_ = flag
-	f.UpdatedAt_ = time.Now()
+	f.Role = flag
+	f.UpdatedAt = time.Now()
 }
 
 func (f *Folder) SetSortOrder(i uint) {
-	f.SortOrder_ = i
-	f.UpdatedAt_ = time.Now()
+	f.SortOrder = i
+	f.UpdatedAt = time.Now()
 }
 
 func NewFolder(parent *Folder, accountID ulid.ULID, name string, role Role) (*Folder, error) {
@@ -107,34 +93,36 @@ func NewFolder(parent *Folder, accountID ulid.ULID, name string, role Role) (*Fo
 		return nil, fmt.Errorf("name must be valid utf-8")
 	}
 
+	if strings.EqualFold(name, FolderINBOX) {
+		name = FolderINBOX
+	}
+
 	now := time.Now()
 	folder := &Folder{
-		ID_:              ulid.Make(),
-		ParentID_:        ulid.ULID{},
-		AccountID_:       accountID,
-		Name_:            name,
-		Role_:            role,
-		Subscribed_:      false,
-		SortOrder_:       0,
-		UIDValidity_:     uint32(rand.Int31()),
-		UIDNext_:         1,
+		ID:               ulid.Make(),
+		ParentID:         ulid.ULID{},
+		AccountID:        accountID,
+		Name:             name,
+		Role:             role,
+		Subscribed:       false,
+		SortOrder:        0,
 		Metadata_:        metadata.New(),
-		CreatedAt_:       now,
-		UpdatedAt_:       now,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 		InitialUpdatedAt: now,
 	}
 
 	if parent != nil {
-		if parent.AccountID() != accountID {
+		if parent.AccountID != accountID {
 			return nil, fmt.Errorf(
 				"parent (account ID = %v) must belong to the same account (%v) as created folder",
-				parent.AccountID(), accountID,
+				parent.AccountID, accountID,
 			)
 		}
-		folder.Path_ = parent.Path_ + PathSeparator + folder.Name_
-		folder.ParentID_ = parent.ID_
+		folder.Path = parent.Path + PathSeparator + folder.Name
+		folder.ParentID = parent.ID
 	} else {
-		folder.Path_ = folder.Name_
+		folder.Path = folder.Name
 	}
 
 	return folder, nil

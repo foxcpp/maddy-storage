@@ -1,10 +1,12 @@
 package folder
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/oklog/ulid/v2"
@@ -19,12 +21,40 @@ var (
 	ErrDanglingEntry      = storeerrors.NotExistsError{Text: "folder entry refers to non-existing message or folder"}
 )
 
-type UIDRange struct {
-	Since uint32
-	Until uint32
+type Range struct {
+	Values    []uint32
+	Intervals []NumInterval
+	SeqNum    bool
+
+	At        ModSeq
+	DeletesAt ModSeq
 }
 
-func (r UIDRange) String() string {
+func (r Range) Empty() bool {
+	return len(r.Values) == 0 && len(r.Intervals) == 0
+}
+
+func (r Range) Includes(num uint32) bool {
+	for _, id := range r.Values {
+		if id == num {
+			return true
+		}
+	}
+	for _, id := range r.Intervals {
+		if num >= id.Since && num <= id.Until {
+			return true
+		}
+	}
+
+	return false
+}
+
+type NumInterval struct {
+	Since uint32 // inclusive, != 0
+	Until uint32 // inclusive, != 0
+}
+
+func (r NumInterval) String() string {
 	return fmt.Sprintf("%d:%d", r.Since, r.Until)
 }
 
@@ -54,17 +84,36 @@ const (
 func (o Order) Less(lhs, rhs *Folder) bool {
 	switch o {
 	case OrderBySortOrder:
-		return lhs.SortOrder_ < rhs.SortOrder_
+		return lhs.SortOrder < rhs.SortOrder
 	case OrderBySortOrderDesc:
-		return lhs.SortOrder_ >= rhs.SortOrder_
+		return lhs.SortOrder >= rhs.SortOrder
 	case OrderByCreatedAt:
-		return lhs.CreatedAt_.Before(rhs.CreatedAt_)
+		return lhs.CreatedAt.Before(rhs.CreatedAt)
 	case OrderByCreatedAtDesc:
-		return !lhs.CreatedAt_.Before(rhs.CreatedAt_)
+		return !lhs.CreatedAt.Before(rhs.CreatedAt)
 	case OrderByName:
-		return strings.Compare(lhs.Name_, rhs.Name_) == -1
+		return strings.Compare(lhs.Name, rhs.Name) == -1
 	case OrderByNameDesc:
-		return strings.Compare(lhs.Name_, rhs.Name_) != -1
+		return strings.Compare(lhs.Name, rhs.Name) != -1
+	default:
+		panic("unknown sort order")
+	}
+}
+
+func (o Order) Compare(lhs, rhs *Folder) int {
+	switch o {
+	case OrderBySortOrder:
+		return cmp.Compare(lhs.SortOrder, rhs.SortOrder)
+	case OrderBySortOrderDesc:
+		return cmp.Compare(lhs.SortOrder, rhs.SortOrder)
+	case OrderByCreatedAt:
+		return lhs.CreatedAt.Compare(rhs.CreatedAt)
+	case OrderByCreatedAtDesc:
+		return rhs.CreatedAt.Compare(lhs.CreatedAt)
+	case OrderByName:
+		return strings.Compare(lhs.Name, rhs.Name)
+	case OrderByNameDesc:
+		return strings.Compare(lhs.Name, rhs.Name)
 	default:
 		panic("unknown sort order")
 	}
@@ -97,12 +146,17 @@ type Repo interface {
 	) ([]RenamedFolder, error)
 	DeleteTree(ctx context.Context, accountID ulid.ULID, root string) ([]DeletedFolder, error)
 
-	NextUID(ctx context.Context, folderID ulid.ULID, n int) ([]uint32, error)
-	CountEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ranges ...UIDRange) (int, error)
-	GetEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ranges ...UIDRange) ([]Entry, error)
+	CountEntryByRange(ctx context.Context, folderID ulid.ULID, ranges Range) (int, error)
+	GetEntryByRange(ctx context.Context, folderID ulid.ULID, ranges Range, returnSeq bool) ([]Entry, error)
 	CreateEntry(ctx context.Context, entry ...Entry) error
-	ReplaceEntries(ctx context.Context, old []Entry, new []Entry) error
-	DeleteEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ranges ...UIDRange) error
+	ReplaceEntries(ctx context.Context, old []Entry, new []Entry, modSeq ModSeq) error
+	DeleteEntryByIDs(ctx context.Context, folderID ulid.ULID, ids []ulid.ULID, modSeq ModSeq) ([]Entry, error)
+	DeleteEntryByRange(ctx context.Context, folderID ulid.ULID, ranges Range, returnSeq bool) ([]Entry, error)
+	TouchEntries(ctx context.Context, folderID ulid.ULID, ids []ulid.ULID, modSeq ModSeq) (map[ulid.ULID]ModSeq, error)
+
+	DeletedEntries(ctx context.Context, folderID ulid.ULID, deletedLt time.Time, limit int) ([]Entry, error)
+
+	UsedFlags(ctx context.Context, folderID ulid.ULID) ([]string, error)
 
 	Tx(ctx context.Context, readOnly bool, f func(r Repo) error) error
 }

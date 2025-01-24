@@ -13,6 +13,7 @@ import (
 
 type GormLogger struct {
 	SlowThreshold time.Duration
+	SkipLogError  func(error) bool
 }
 
 func (g GormLogger) zap(ctx context.Context) *zap.Logger {
@@ -40,7 +41,7 @@ func (g GormLogger) Error(ctx context.Context, s string, i ...interface{}) {
 func (g GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql string, rowsAffected int64), err error) {
 	elapsed := time.Since(begin)
 	switch {
-	case err != nil && !errors.Is(err, gorm.ErrRecordNotFound):
+	case err != nil && !errors.Is(err, gorm.ErrRecordNotFound) && (g.SkipLogError == nil || !g.SkipLogError(err)):
 		sql, rows := fc()
 		if rows == -1 {
 			g.zap(ctx).Warn("failed SQL query",

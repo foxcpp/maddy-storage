@@ -12,7 +12,9 @@ type Disposition struct {
 	Params map[string]string `json:"params,omitempty"`
 }
 
-type ContentData struct{}
+type ContentData struct {
+	Envelope *ContentEnvelope `json:"envelope"` // Copy of root part envelope.
+}
 
 type Address = gomail.Address
 
@@ -30,6 +32,9 @@ type ContentEnvelope struct {
 }
 
 type ContentPartData struct {
+	// True if the part is an immediate child a multipart.
+	IsMIMEPart bool `json:"is_mime_part,omitempty"`
+
 	// Populated based on MIME header for the part or root message header.
 	Type        string       `json:"type"`                  // Content-Type value (text/plain)
 	Disposition *Disposition `json:"disposition,omitempty"` // Content-Disposition
@@ -44,17 +49,39 @@ type ContentPartData struct {
 	Size           uint32            `json:"size,omitempty"`        // Size of part body in octets.
 	HeaderSize     uint32            `json:"header_size,omitempty"` // Size of part MIME header in octets (for Nested - of RFC822 header).
 	HeaderNumLines int64             `json:"header_num_lines,omitempty"`
+	MultipartSize  uint32            `json:"multipart_size,omitempty"` // Size of multipart separators, etc.
+	MultipartLines int64             `json:"multipart_lines,omitempty"`
 	NumLines       int64             `json:"num_lines,omitempty"` // Amount of LFs in body, populated for text/* only.
 
 	Nested   *ContentPartData `json:"nested,omitempty"` // Populated only if RFC822 is stored inside MIME part.
 	Envelope *ContentEnvelope `json:"envelope,omitempty"`
 }
 
-func (c *ContentPartData) IsMultipart() bool {
-	return strings.HasPrefix(strings.ToLower(c.Type), "multipart/")
+func (c *ContentPartData) TotalSize() uint32 {
+	return c.HeaderSize + c.MultipartSize + c.Size
 }
 
-func (c *ContentPartData) HasNestedRFC822() bool {
+func (c *ContentPartData) TotalLines() int64 {
+	return c.HeaderNumLines + c.MultipartLines + c.NumLines
+}
+
+func (c *ContentPartData) IsNestedMessage() bool {
 	return strings.EqualFold(c.Type, "message/rfc822") ||
 		strings.EqualFold(c.Type, "message/global")
+}
+
+func (c *ContentPartData) IsMultipart() bool {
+	contentType, _, ok := strings.Cut(c.Type, "/")
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(contentType, "multipart")
+}
+
+func (c *ContentPartData) IsText() bool {
+	contentType, _, ok := strings.Cut(c.Type, "/")
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(contentType, "text")
 }

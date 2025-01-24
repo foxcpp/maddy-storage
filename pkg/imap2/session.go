@@ -8,22 +8,105 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
-	mess "github.com/foxcpp/go-imap-mess/v2"
+	"github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	"github.com/foxcpp/maddy-storage/internal/usecase"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 )
+
+type selectedMbox struct {
+	FolderID          ulid.ULID
+	At, DeletesAt     folder.ModSeq
+	Msgs              uint32
+	MaxUID            uint32
+	Recents           recent.Set
+	ReadOnly          bool
+	CondStoreActive   bool
+	SavedSearchResult imap.UIDSet
+
+	SkipExpunges        map[uint32]struct{}
+	SkipFlagUpdateUntil map[uint32]folder.ModSeq
+}
+
+func (m *selectedMbox) isOpen() bool {
+	return m.FolderID != ulid.ULID{}
+}
+
+var errSeqOutOfRange = &imap.Error{
+	Type: imap.StatusResponseTypeNo,
+	Code: imap.ResponseCodeCannot,
+	Text: "Sequence number out ouf range",
+}
+
+func (m *selectedMbox) idsAsRange(set imap.NumSet) (folder.Range, error) {
+	res := folder.Range{
+		At:        m.At,
+		DeletesAt: m.DeletesAt,
+	}
+	if imap.IsSearchRes(set) {
+		set = m.SavedSearchResult
+	}
+	switch set := set.(type) {
+	case imap.SeqSet:
+		res.SeqNum = true
+		for _, seq := range set {
+			if seq.Start == 0 {
+				seq.Start = m.Msgs
+			}
+			if seq.Stop == 0 {
+				seq.Stop = m.Msgs
+			}
+			if seq.Start > m.Msgs || seq.Stop > m.Msgs {
+				return folder.Range{}, errSeqOutOfRange
+			}
+
+			if seq.Start == seq.Stop {
+				res.Values = append(res.Values, seq.Start)
+				continue
+			}
+
+			if seq.Stop < seq.Start {
+				seq.Start, seq.Stop = seq.Stop, seq.Start
+			}
+			res.Intervals = append(res.Intervals, folder.NumInterval{Since: seq.Start, Until: seq.Stop})
+		}
+	case imap.UIDSet:
+		for _, seq := range set {
+			if seq.Start == 0 {
+				seq.Start = imap.UID(m.MaxUID)
+			}
+			if seq.Stop == 0 {
+				seq.Stop = imap.UID(m.MaxUID)
+			}
+
+			if seq.Start == seq.Stop {
+				res.Values = append(res.Values, uint32(seq.Start))
+				continue
+			}
+
+			if seq.Stop < seq.Start {
+				seq.Start, seq.Stop = seq.Stop, seq.Start
+			}
+			res.Intervals = append(res.Intervals, folder.NumInterval{
+				Since: uint32(seq.Start),
+				Until: uint32(seq.Stop),
+			})
+		}
+	default:
+		panic("unexpected NumSet type")
+	}
+
+	return res, nil
+}
 
 type session struct {
 	b   *Backend
 	c   *imapserver.Conn
 	sid ulid.ULID
 
-	accountID        ulid.ULID
-	selectedFolderID ulid.ULID
-	updateHandler    *mess.MailboxHandle[ulid.ULID]
-	readOnly         bool
+	accountID ulid.ULID
+	mbox      selectedMbox
 
 	log           *zap.Logger
 	ctx           context.Context
@@ -35,7 +118,7 @@ func (s *session) Unauthenticate() error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Unauthenticate")
 	defer task.End()
 
-	if s.selectedFolderID != (ulid.ULID{}) {
+	if s.mbox.isOpen() {
 		if err := s.unselect(ctx); err != nil {
 			return err
 		}
@@ -46,8 +129,8 @@ func (s *session) Unauthenticate() error {
 }
 
 func (s *session) Namespace() (*imap.NamespaceData, error) {
-	//ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Namespace")
-	//defer task.End()
+	_, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Namespace")
+	defer task.End()
 
 	return &imap.NamespaceData{
 		Personal: []imap.NamespaceDescriptor{
@@ -63,8 +146,10 @@ func (s *session) Close() error {
 	s.sessionTask.End()
 	s.sessionCancel(fmt.Errorf("connection closed"))
 	s.log.Info("session close")
-	if s.updateHandler != nil {
-		return s.updateHandler.Close()
+	if s.mbox.isOpen() {
+		if err := s.unselect(s.ctx); err != nil {
+			s.log.Error("unselect failed", zap.Error(err))
+		}
 	}
 	return nil
 }
@@ -75,7 +160,7 @@ func (s *session) Login(username, password string) error {
 
 	authzULID, err := s.b.accounts.AuthPlain(ctx, username, password)
 	if err != nil {
-		if errors.Is(err, usecase.ErrInvalidCredentials) {
+		if errors.Is(err, accountusecase.ErrInvalidCredentials) {
 			s.log.Info("invalid credentials", zap.String("username", username))
 			return imapserver.ErrAuthFailed
 		}

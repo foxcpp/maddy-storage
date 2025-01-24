@@ -39,16 +39,7 @@ func HeaderCopy(r *bufio.Reader, to io.Writer) error {
 	return nil
 }
 
-func FilterHeaderCopy(r *bufio.Reader, to io.Writer, include []string, exclude []string) error {
-	if len(include) == 0 && len(exclude) == 0 {
-		// Simple copy, copy lines until we reach empty line.
-		return HeaderCopy(r, to)
-	}
-
-	parsed, err := textproto.ReadHeader(r)
-	if err != nil {
-		return err
-	}
+func FilterHeaderCopyParsed(parsed textproto.Header, to io.Writer, include []string, exclude []string) error {
 	iter := parsed.Fields()
 	for iter.Next() {
 		if include != nil {
@@ -80,6 +71,19 @@ func FilterHeaderCopy(r *bufio.Reader, to io.Writer, include []string, exclude [
 	}
 
 	return textproto.WriteHeader(to, parsed)
+}
+
+func FilterHeaderCopy(r *bufio.Reader, to io.Writer, include []string, exclude []string) error {
+	if len(include) == 0 && len(exclude) == 0 {
+		// Simple copy, copy lines until we reach empty line.
+		return HeaderCopy(r, to)
+	}
+
+	parsed, err := textproto.ReadHeader(r)
+	if err != nil {
+		return err
+	}
+	return FilterHeaderCopyParsed(parsed, to, include, exclude)
 }
 
 func IsMultipart(h textproto.Header) bool {

@@ -11,10 +11,10 @@ type IMAPLogger struct {
 }
 
 func (i IMAPLogger) Write(p []byte) (n int, err error) {
-	i.Zap.Log(i.Level, string(p))
+	i.Zap.WithOptions(zap.AddCallerSkip(1)).Log(i.Level, string(p))
 	return len(p), nil
 }
 
 func (i IMAPLogger) Printf(format string, args ...interface{}) {
-	i.Zap.Sugar().Logf(i.Level, format, args...)
+	i.Zap.WithOptions(zap.AddCallerSkip(1)).Sugar().Logf(i.Level, format, args...)
 }

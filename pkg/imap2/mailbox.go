@@ -2,6 +2,7 @@ package imap2
 
 import (
 	"context"
+	"math"
 	"regexp"
 	"runtime/trace"
 	"strings"
@@ -9,16 +10,25 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
-	"github.com/foxcpp/maddy-storage/internal/usecase"
-	"github.com/oklog/ulid/v2"
 )
 
 func (s *session) Create(mailbox string, options *imap.CreateOptions) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Create")
 	defer task.End()
 	ctx = contextlog.WithLogger(ctx, s.log)
+
+	mailbox = strings.TrimRight(mailbox, folder.PathSeparator)
+
+	if strings.EqualFold(mailbox, "INBOX") {
+		return &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: imap.ResponseCodeAlreadyExists,
+			Text: "Cannot create INBOX",
+		}
+	}
 
 	role := folder.RoleNone
 	if len(options.SpecialUse) != 0 {
@@ -59,13 +69,17 @@ func (s *session) Delete(mailbox string) error {
 	defer task.End()
 	ctx = contextlog.WithLogger(ctx, s.log)
 
-	deleted, err := s.b.folders.Delete(ctx, s.accountID, false, mailbox)
-	if err != nil {
-		return s.asIMAPError(err)
+	if strings.EqualFold(mailbox, "INBOX") {
+		return &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: imap.ResponseCodeClientBug,
+			Text: "Cannot delete INBOX",
+		}
 	}
 
-	for _, d := range deleted {
-		s.b.updateManager.MailboxDestroyed(d.ID)
+	_, err := s.b.folders.Delete(ctx, s.accountID, false, mailbox)
+	if err != nil {
+		return s.asIMAPError(err)
 	}
 
 	return nil
@@ -77,12 +91,26 @@ func (s *session) Rename(mailbox, newName string) error {
 	ctx = contextlog.WithLogger(ctx, s.log)
 
 	if strings.EqualFold(mailbox, "INBOX") {
-		// TODO: Implement "move everything from INBOX" behavior.
-		return &imap.Error{
-			Type: imap.StatusResponseTypeNo,
-			Code: imap.ResponseCodeServerBug,
-			Text: "INBOX cannot be renamed",
+		created, err := s.b.folders.Create(ctx, s.accountID, mailbox, folder.RoleNone, true)
+		if err != nil {
+			return s.asIMAPError(err)
 		}
+
+		_, err = s.b.messages.Move(ctx, s.accountID, folder.Range{
+			Intervals: []folder.NumInterval{
+				{
+					Since: 0,
+					Until: math.MaxUint32,
+				},
+			},
+			At:        s.mbox.At,
+			DeletesAt: s.mbox.DeletesAt,
+		}, s.mbox.FolderID, created.Path, false)
+		if err != nil {
+			return s.asIMAPError(err)
+		}
+
+		return nil
 	}
 
 	_, err := s.b.folders.Rename(ctx, s.accountID, mailbox, newName, true)
@@ -154,22 +182,40 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 	defer task.End()
 	ctx = contextlog.WithLogger(ctx, s.log)
 
+	if len(patterns) == 0 {
+		// Special request to return path separator and root.
+		// We don't bother checking roots or anything.
+		return w.WriteList(&imap.ListData{
+			Attrs:   []imap.MailboxAttr{imap.MailboxAttrNoSelect},
+			Delim:   rune(folder.PathSeparator[0]),
+			Mailbox: "",
+		})
+	}
+
+	ref = strings.TrimRight(ref, folder.PathSeparator)
+
 	options.ReturnSpecialUse = true
 	options.ReturnChildren = true
 
 	regexpPatterns := make([]*regexp.Regexp, len(patterns))
 	for i, p := range patterns {
+		if strings.HasPrefix(strings.ToLower(p), "inbox") {
+			// Replace any spelling of case-insensitive INBOX folder with
+			// canonical one.
+			p = folder.FolderINBOX + p[len(folder.FolderINBOX):]
+		}
 		if ref != "" {
 			regexpPatterns[i] = patternAsRegex(ref + folder.PathSeparator + p)
 		} else {
 			regexpPatterns[i] = patternAsRegex(p)
 		}
 	}
-	opts := &usecase.ListOpts{
+	opts := &folderusecase.ListOpts{
 		Filter: folder.Filter{
 			PathRegex: regexpPatterns,
 		},
 		CheckChildren: true,
+		SortAsTree:    true,
 	}
 	if options.SelectRecursiveMatch {
 		if options.SelectSubscribed {
@@ -186,6 +232,16 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 			opts.Filter.HasRole = &options.SelectSpecialUse
 		}
 	}
+	if options.ReturnStatus != nil {
+		status := options.ReturnStatus
+		opts.ReturnIMAPMeta = status.UIDNext || status.UIDValidity
+		opts.CountDeleted = status.NumDeleted || status.DeletedStorage
+		opts.CountMsgs = status.NumMessages
+		opts.ReturnMaxModSeq = status.HighestModSeq
+		opts.CountSize = status.Size
+		opts.CountUnseen = status.NumUnseen
+		opts.ReturnNamespace = status.AppendLimit
+	}
 
 	options.ReturnSubscribed = options.ReturnSubscribed || options.SelectSubscribed
 	options.ReturnSpecialUse = options.ReturnSpecialUse || options.SelectSpecialUse
@@ -198,14 +254,14 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 	for _, f := range folders {
 		data := &imap.ListData{
 			Delim:   rune(folder.PathSeparator[0]),
-			Mailbox: f.Folder.Name_,
+			Mailbox: f.Folder.Path,
 		}
 
-		if options.ReturnSubscribed && f.Folder.Subscribed_ {
+		if options.ReturnSubscribed && f.Folder.Subscribed {
 			data.Attrs = append(data.Attrs, imap.MailboxAttrSubscribed)
 		}
-		if options.ReturnSpecialUse && f.Folder.Role_ != folder.RoleNone {
-			data.Attrs = append(data.Attrs, folderRoleAsSpecial(f.Folder.Role_))
+		if options.ReturnSpecialUse && f.Folder.Role != folder.RoleNone {
+			data.Attrs = append(data.Attrs, folderRoleAsSpecial(f.Folder.Role))
 		}
 		if options.ReturnChildren {
 			if f.HasChildren {
@@ -219,37 +275,34 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 				Mailbox: data.Mailbox,
 			}
 			if options.ReturnStatus.NumMessages {
-				msgs := uint32(f.Msgs)
-				data.Status.NumMessages = &msgs
+				data.Status.NumMessages = &f.Msgs
 			}
 			if options.ReturnStatus.UIDValidity {
-				data.Status.UIDValidity = f.Folder.UIDValidity_
+				data.Status.UIDValidity = f.IMAP.UIDValidity
 			}
 			if options.ReturnStatus.UIDNext {
-				data.Status.UIDNext = imap.UID(f.Folder.UIDNext_)
+				data.Status.UIDNext = imap.UID(f.IMAP.UIDNext)
 			}
 			if options.ReturnStatus.NumUnseen {
-				msgs := uint32(f.UnseenMsgs)
-				data.Status.NumUnseen = &msgs
+				data.Status.NumUnseen = &f.UnseenMsgs
 			}
 			if options.ReturnStatus.NumDeleted {
-				msgs := uint32(f.DeletedMsgs)
-				data.Status.NumDeleted = &msgs
+				data.Status.NumDeleted = &f.DeletedMsgs
 			}
 			if options.ReturnStatus.Size {
 				data.Status.Size = &f.Size
 			}
 			if options.ReturnStatus.AppendLimit {
-				panic("not implemented") // TODO: implement me
+				data.Status.AppendLimit = &f.Namespace.AppendLimit
 			}
 			if options.ReturnStatus.DeletedStorage {
-				panic("not implemented") // TODO: implement me
+				data.Status.DeletedStorage = &f.DeletedSize
 			}
 		}
 		if options.SelectRecursiveMatch && len(f.MatchingDescendant) > 0 {
 			data.ChildInfo = &imap.ListDataChildInfo{}
 			for _, f := range f.MatchingDescendant {
-				if options.SelectSubscribed && f.Subscribed_ {
+				if options.SelectSubscribed && f.Subscribed {
 					data.ChildInfo.Subscribed = true
 				}
 			}
@@ -275,11 +328,6 @@ func (s *session) Unselect() error {
 }
 
 func (s *session) unselect(ctx context.Context) error {
-	s.selectedFolderID = ulid.ULID{}
-	if s.updateHandler != nil {
-		s.updateHandler.Close()
-		s.updateHandler = nil
-	}
-	s.readOnly = false
+	s.mbox = selectedMbox{}
 	return nil
 }

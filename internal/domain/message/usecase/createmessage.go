@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime/trace"
 	"strconv"
 	"time"
 
@@ -22,6 +23,8 @@ import (
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 )
+
+var ErrTooManyNestedParts = errors.New("message: too deeply nested multipart")
 
 type memReader struct{ *bytes.Reader }
 
@@ -68,34 +71,53 @@ func (uc *Usecase) CreateMessage(
 	date time.Time, flags []string,
 	size int64, mime io.Reader,
 ) (*CreateData, error) {
+	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.CreateMessage").End()
+
 	targetFolder, err := uc.folderRepo.GetByPath(ctx, accountID, folderPath)
 	if err != nil {
 		return nil, fmt.Errorf("get folder by path %v: %w", folderPath, err)
 	}
 
-	uids, err := uc.folderRepo.NextUID(ctx, targetFolder.ID_, 1)
+	imapFolder, err := uc.imapRepo.GetIMAPFolder(ctx, targetFolder.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get imap folder by id %v: %w", targetFolder.ID, err)
+	}
+
+	uids, err := uc.imapRepo.NextUID(ctx, targetFolder.ID, 1)
 	if err != nil {
 		return nil, fmt.Errorf("nextuid: %w", err)
 	}
 
-	msg, err := uc.bufferStoreMessage(ctx, accountID, date, flags, size, mime)
+	modSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("modseq: %w", err)
+	}
+
+	msg, err := uc.bufferStoreMessage(ctx, accountID, modSeq, date, flags, size, mime)
 	if err != nil {
 		return nil, fmt.Errorf("bufferstore: %w", err)
 	}
 
-	entry := folder.NewEntry(targetFolder.ID_, msg.ID_, uids[0])
+	entry := folder.NewEntry(targetFolder.ID, msg.ID, uids[0], modSeq, time.Now())
 	if err := uc.folderRepo.CreateEntry(ctx, entry); err != nil {
 		return nil, fmt.Errorf("create folder entry: %w", err)
 	}
 
+	contextlog.FromContext(ctx).Info("created message",
+		zap.Stringer("folder_id", targetFolder.ID), zap.Stringer("msg_id", msg.ID),
+		zap.Uint32("imap_uid", entry.IMAPUID), zap.Uint32("size", msg.TotalSize))
+
 	return &CreateData{
 		Folder: targetFolder,
+		IMAP:   &imapFolder,
 		Entry:  &entry,
 		Msg:    msg,
 	}, nil
 }
 
 func (uc *Usecase) tempBuffer(ctx context.Context, accountID ulid.ULID, size int64, mime io.Reader) (b buffer, err error) {
+	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.tempBuffer").End()
+
 	log := contextlog.FromContext(ctx)
 
 	if size <= uc.cfg.MemoryBufferMaxSize {
@@ -146,12 +168,7 @@ func (uc *Usecase) tempBuffer(ctx context.Context, accountID ulid.ULID, size int
 	}, nil
 }
 
-func (uc *Usecase) bufferStoreMessage(
-	ctx context.Context,
-	accountID ulid.ULID,
-	date time.Time, flags []string,
-	size int64, mime io.Reader,
-) (*message.Msg, error) {
+func (uc *Usecase) bufferStoreMessage(ctx context.Context, accountID ulid.ULID, modSeq folder.ModSeq, date time.Time, flags []string, size int64, mime io.Reader) (*message.Msg, error) {
 	msgID := ulid.Make()
 	log := contextlog.FromContext(ctx).With(zap.Stringer("message_id", msgID))
 	ctx = contextlog.WithLogger(ctx, log)
@@ -174,10 +191,10 @@ func (uc *Usecase) bufferStoreMessage(
 	defer r.Close()
 
 	bufR := bufio.NewReader(r)
-	msg, err := uc.storeMessage(ctx, accountID, msgID, date, flags, bufR)
+	msg, err := uc.storeMessage(ctx, accountID, modSeq, msgID, date, flags, bufR)
 	if err != nil {
 		log.Error("failed to store as message tree, will try storing as raw", zap.Error(err), zap.String("key", buff.storeKey))
-		return uc.storeRawMessage(ctx, accountID, msgID, date, flags, buff)
+		return uc.storeRawMessage(ctx, accountID, modSeq, msgID, date, flags, buff)
 	}
 
 	return msg, nil
@@ -260,12 +277,7 @@ func (uc *Usecase) storeExternalPart(ctx context.Context, accountID, msgID, part
 	return size, externalID, nil
 }
 
-func (uc *Usecase) storeRawMessage(
-	ctx context.Context,
-	accountID, msgID ulid.ULID,
-	date time.Time, flags []string,
-	tempBuf buffer,
-) (msg *message.Msg, err error) {
+func (uc *Usecase) storeRawMessage(ctx context.Context, accountID ulid.ULID, modSeq folder.ModSeq, msgID ulid.ULID, date time.Time, flags []string, tempBuf buffer) (msg *message.Msg, err error) {
 	log := contextlog.FromContext(ctx)
 
 	var inline []byte
@@ -304,6 +316,7 @@ func (uc *Usecase) storeRawMessage(
 
 	msg, err = message.New(&message.NewMsg{
 		ID:      msgID,
+		ModSeq:  modSeq,
 		Date:    date,
 		Flags:   flags,
 		Content: &message.ContentData{},
@@ -330,12 +343,7 @@ func (uc *Usecase) storeRawMessage(
 	return msg, nil
 }
 
-func (uc *Usecase) storeMessage(
-	ctx context.Context,
-	accountID, msgID ulid.ULID,
-	date time.Time, flags []string,
-	reader *bufio.Reader,
-) (msg *message.Msg, err error) {
+func (uc *Usecase) storeMessage(ctx context.Context, accountID ulid.ULID, modSeq folder.ModSeq, msgID ulid.ULID, date time.Time, flags []string, reader *bufio.Reader) (msg *message.Msg, err error) {
 	log := contextlog.FromContext(ctx)
 
 	header, err := textproto.ReadHeader(reader)
@@ -367,6 +375,7 @@ func (uc *Usecase) storeMessage(
 
 	msg, err = message.New(&message.NewMsg{
 		ID:      msgID,
+		ModSeq:  modSeq,
 		Date:    date,
 		Flags:   flags,
 		Content: &message.ContentData{},
@@ -401,6 +410,12 @@ func (uc *Usecase) storePartsTree(
 	path message.Path, header textproto.Header, reader *bufio.Reader,
 	orderOffset int, isMIMEPart bool,
 ) (parts []message.NewPart, err error) {
+	if len(path) > uc.cfg.MaxPartNesting {
+		return nil, ErrTooManyNestedParts
+	}
+
+	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.storePartsTree").End()
+
 	if mimeutils.HasNestedRFC822(header) {
 		return uc.storeNestedRFC822(ctx, accountID, msgID, path, header, reader, orderOffset, isMIMEPart)
 	}
@@ -423,7 +438,9 @@ func (uc *Usecase) storeLeafPart(
 	ctx = contextlog.WithLogger(ctx, log)
 
 	partID := ulid.Make()
-	partData := &message.ContentPartData{}
+	partData := &message.ContentPartData{
+		IsMIMEPart: isMIMEpart,
+	}
 	uc.fillPartDataFromHeader(ctx, header, partData)
 	if !isMIMEpart {
 		uc.fillEnvelopeFromHeader(ctx, header, partData)
@@ -466,6 +483,18 @@ func (uc *Usecase) storeLeafPart(
 	partData.NumLines = int64(lineCounter.Lines)
 	partData.Size = uint32(blob.Size) - uint32(headerBlob.Len())
 
+	/*
+		--boundary
+
+		hello
+							<--- this empty line, that, technically, is not part of the body part
+								 but appears only if the message part is terminated by an empty line.
+		--boundary--
+	*/
+	if isMIMEpart && lineCounter.LastByte == '\n' {
+		partData.MultipartLines++
+	}
+
 	log.Debug("stored leaf part",
 		zap.Stringer("part_id", partID),
 		zap.Int("order", orderOffset),
@@ -493,7 +522,9 @@ func (uc *Usecase) storeMultipart(
 	ctx = contextlog.WithLogger(ctx, log)
 
 	partID := ulid.Make()
-	partData := &message.ContentPartData{}
+	partData := &message.ContentPartData{
+		IsMIMEPart: isMIMEPart,
+	}
 	uc.fillPartDataFromHeader(ctx, header, partData)
 	if !isMIMEPart {
 		uc.fillEnvelopeFromHeader(ctx, header, partData)
@@ -531,7 +562,7 @@ func (uc *Usecase) storeMultipart(
 		ExternalID: blob.ExternalID,
 	}}
 
-	subparts, err := uc.storeMultipartSubparts(
+	partsCount, subparts, err := uc.storeMultipartSubparts(
 		originalCtx,
 		accountID, msgID, path,
 		reader, boundary, orderOffset,
@@ -543,8 +574,16 @@ func (uc *Usecase) storeMultipart(
 
 	log.Debug("stored multipart",
 		zap.Stringer("part_id", partID),
+		zap.Int("parts_count", partsCount),
 		zap.Int("order", orderOffset),
 		zap.Any("content", partData))
+
+	partData.MultipartSize = mimeutils.MultipartOctetSize(partsCount, boundary)
+	partData.MultipartLines += mimeutils.MultipartLineCount(partsCount)
+	if isMIMEPart {
+		// See storeLeafPart for details.
+		partData.MultipartLines++
+	}
 
 	return parts, nil
 }
@@ -554,7 +593,7 @@ func (uc *Usecase) storeMultipartSubparts(
 	accountID ulid.ULID, msgID ulid.ULID, path message.Path,
 	reader *bufio.Reader, boundary string, orderOffset int,
 	log *zap.Logger,
-) (parts []message.NewPart, err error) {
+) (partsCount int, parts []message.NewPart, err error) {
 	defer func() {
 		if err != nil {
 			for _, p := range parts {
@@ -582,11 +621,12 @@ func (uc *Usecase) storeMultipartSubparts(
 			partPath, part.Header,
 			bufio.NewReader(part), orderOffset+1+len(parts), true)
 		if err != nil {
-			return nil, fmt.Errorf("store multipart part %v (%v): %w", partPath, part.Header.Get("Content-Type"), err)
+			return 0, nil, fmt.Errorf("store multipart part %v (%v): %w", partPath, part.Header.Get("Content-Type"), err)
 		}
 		parts = append(parts, childPart...)
+		partsCount++
 	}
-	return parts, nil
+	return partsCount, parts, nil
 }
 
 func (uc *Usecase) storeNestedRFC822(
@@ -601,7 +641,9 @@ func (uc *Usecase) storeNestedRFC822(
 	ctx = contextlog.WithLogger(ctx, log)
 
 	partID := ulid.Make()
-	partData := &message.ContentPartData{}
+	partData := &message.ContentPartData{
+		IsMIMEPart: isMIMEPart,
+	}
 	uc.fillPartDataFromHeader(ctx, header, partData)
 	if !isMIMEPart {
 		uc.fillEnvelopeFromHeader(ctx, header, partData)
@@ -687,7 +729,8 @@ func (uc *Usecase) storeNestedRFC822(
 		}
 
 		var subparts []message.NewPart
-		subparts, err = uc.storeMultipartSubparts(
+		var partsCount int
+		partsCount, subparts, err = uc.storeMultipartSubparts(
 			originalCtx,
 			accountID, msgID, path,
 			reader, boundary, orderOffset,
@@ -696,6 +739,13 @@ func (uc *Usecase) storeNestedRFC822(
 			return nil, err
 		}
 		parts = append(parts, subparts...)
+
+		partData.MultipartSize += mimeutils.MultipartOctetSize(partsCount, boundary)
+		partData.MultipartLines += mimeutils.MultipartLineCount(partsCount)
+		if isMIMEPart {
+			// See storeLeafPart for details.
+			partData.MultipartLines++
+		}
 	} else {
 		rfc822Part, err := uc.storePartsTree(originalCtx, accountID, msgID,
 			path.FirstChild(), nestedHeader,
@@ -812,14 +862,18 @@ func (uc *Usecase) fillPartDataFromHeader(ctx context.Context, header textproto.
 }
 
 type countingReader struct {
-	R     io.Reader
-	Lines int
-	Size  int
+	R        io.Reader
+	Lines    int
+	Size     int
+	LastByte byte
 }
 
 func (c *countingReader) Read(p []byte) (n int, err error) {
 	n, err = c.R.Read(p)
 	c.Lines += bytes.Count(p[:n], []byte("\r\n"))
 	c.Size += n
+	if n != 0 {
+		c.LastByte = p[n-1]
+	}
 	return
 }

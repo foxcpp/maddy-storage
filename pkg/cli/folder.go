@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	"github.com/foxcpp/maddy-storage/internal/usecase"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	"github.com/urfave/cli/v2"
 )
 
@@ -24,7 +24,7 @@ func (a AppProvider) listFolders(c *cli.Context) error {
 		return err
 	}
 
-	data, err := app.Folders.List(c.Context, acct.ID_, &usecase.ListOpts{
+	data, err := app.Folders.List(c.Context, acct.ID, &folderusecase.ListOpts{
 		SortAsTree: true,
 	}, folder.OrderBySortOrder)
 	if err != nil {
@@ -33,7 +33,7 @@ func (a AppProvider) listFolders(c *cli.Context) error {
 
 	fmt.Printf("ID\tPATH\tROLE\n")
 	for _, f := range data {
-		fmt.Printf("%v\t%v\t%v\n", f.Folder.ID_, f.Folder.Path_, f.Folder.Role_)
+		fmt.Printf("%v\t%v\t%v\n", f.Folder.ID, f.Folder.Path, f.Folder.Role)
 	}
 	return nil
 }
@@ -63,11 +63,11 @@ func (a AppProvider) createFolder(c *cli.Context) error {
 		return err
 	}
 
-	created, err := app.Folders.Create(c.Context, acct.ID_, folderName, role, createParents)
+	created, err := app.Folders.Create(c.Context, acct.ID, folderName, role, createParents)
 	if err != nil {
 		return err
 	}
-	fmt.Println(created.ID_)
+	fmt.Println(created.ID)
 	return nil
 }
 
@@ -96,7 +96,7 @@ func (a AppProvider) renameFolder(c *cli.Context) error {
 		return err
 	}
 
-	renamed, err := app.Folders.Rename(c.Context, acct.ID_, oldPath, newPath, createParents)
+	renamed, err := app.Folders.Rename(c.Context, acct.ID, oldPath, newPath, createParents)
 	if err != nil {
 		return err
 	}
@@ -128,7 +128,7 @@ func (a AppProvider) deleteFolder(c *cli.Context) error {
 		return err
 	}
 
-	deleted, err := app.Folders.Delete(c.Context, acct.ID_, recursive, folderName)
+	deleted, err := app.Folders.Delete(c.Context, acct.ID, recursive, folderName)
 	if err != nil {
 		return err
 	}

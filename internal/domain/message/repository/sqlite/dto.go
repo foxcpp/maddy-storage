@@ -5,17 +5,21 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/oklog/ulid/v2"
 )
 
 type msgDTO struct {
-	ID        ulid.ULID `gorm:"column:id;primaryKey"`
-	Date      time.Time `gorm:"column:date"`
-	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime:false"`
-	UpdatedAt time.Time `gorm:"column:updated_at;autoUpdateTime:false"`
-	Meta      []byte    `gorm:"column:meta"`    // JSON
-	Content   []byte    `gorm:"column:content"` // JSON
+	ID              ulid.ULID `gorm:"column:id;primaryKey"`
+	Date            time.Time `gorm:"column:date"`
+	TotalSize       uint32    `gorm:"column:total_size"`
+	CreatedAtModSeq uint64    `gorm:"column:created_at_modseq"`
+	ModSeq          uint64    `gorm:"column:modseq"`
+	CreatedAt       time.Time `gorm:"column:created_at;autoCreateTime:false"`
+	UpdatedAt       time.Time `gorm:"column:updated_at;autoUpdateTime:false"`
+	Meta            []byte    `gorm:"column:meta"`    // JSON
+	Content         []byte    `gorm:"column:content"` // JSON
 }
 
 func (msgDTO) TableName() string { return "messages" }
@@ -40,45 +44,48 @@ type msgPartDTO struct {
 func (msgPartDTO) TableName() string { return "message_parts" }
 
 func asDTO(model *message.Msg) (*msgDTO, []msgFlagDTO, []msgPartDTO, error) {
-	metaJson, err := json.Marshal(model.Meta_)
+	metaJson, err := json.Marshal(model.Meta)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to marshal metadata: %v", err)
 	}
-	contentJson, err := json.Marshal(model.Content_)
+	contentJson, err := json.Marshal(model.Content)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to marshal content data: %v", err)
 	}
 
 	msgDto := &msgDTO{
-		ID:        model.ID_,
-		Date:      model.ReceivedAt_,
-		CreatedAt: model.CreatedAt_,
-		UpdatedAt: model.UpdatedAt_,
-		Meta:      metaJson,
-		Content:   contentJson,
+		ID:              model.ID,
+		CreatedAtModSeq: uint64(model.CreatedAtModSeq),
+		ModSeq:          uint64(model.ModSeq),
+		Date:            model.ReceivedAt,
+		TotalSize:       model.TotalSize,
+		CreatedAt:       model.CreatedAt,
+		UpdatedAt:       model.UpdatedAt,
+		Meta:            metaJson,
+		Content:         contentJson,
 	}
-	flagsDto := make([]msgFlagDTO, len(model.Flags_))
-	for i, f := range model.Flags_ {
+	flagsDto := make([]msgFlagDTO, len(model.Flags))
+	for i, f := range model.Flags {
 		flagsDto[i] = msgFlagDTO{
 			MessageID: msgDto.ID,
 			Flag:      f,
 		}
 	}
-	partsDto := make([]msgPartDTO, len(model.Parts_))
-	for i, p := range model.Parts_ {
-		contentJson, err := json.Marshal(p.Content_)
+	partsDto := make([]msgPartDTO, len(model.Parts))
+	for i, p := range model.Parts {
+		contentJson, err := json.Marshal(p.Content)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to marshal content data: %v", err)
 		}
 
 		partsDto[i] = msgPartDTO{
-			ID:             p.ID_,
+			ID:             p.ID,
 			MessageID:      msgDto.ID,
 			Order:          p.Order,
-			Path:           p.Path_.String(),
+			Path:           p.Path.String(),
 			Content:        contentJson,
-			Inline:         p.Inline_,
-			ExternalBlobID: p.ExternalBlobID_,
+			Inline:         p.Inline,
+			ExternalBlobID: p.ExternalBlobID,
 		}
 	}
 
@@ -87,47 +94,55 @@ func asDTO(model *message.Msg) (*msgDTO, []msgFlagDTO, []msgPartDTO, error) {
 
 func asModel(msgDTO *msgDTO, flagsDTO []msgFlagDTO, partsDTO []msgPartDTO) (*message.Msg, error) {
 	msg := &message.Msg{
-		ID_:         msgDTO.ID,
-		ReceivedAt_: msgDTO.Date,
-		CreatedAt_:  msgDTO.CreatedAt,
-		UpdatedAt_:  msgDTO.UpdatedAt,
+		ID:              msgDTO.ID,
+		CreatedAtModSeq: folder.ModSeq(msgDTO.CreatedAtModSeq),
+		ModSeq:          folder.ModSeq(msgDTO.ModSeq),
+		ReceivedAt:      msgDTO.Date,
+		CreatedAt:       msgDTO.CreatedAt,
+		UpdatedAt:       msgDTO.UpdatedAt,
 	}
 
-	if err := json.Unmarshal(msgDTO.Meta, &msg.Meta_); err != nil {
+	if err := json.Unmarshal(msgDTO.Meta, &msg.Meta); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal metadata: %v", err)
 	}
-	if msg.Content_ == nil {
+	if msg.Meta == nil {
 		return nil, fmt.Errorf("nil metadata")
 	}
-
-	msg.Flags_ = make([]string, len(flagsDTO))
-	for i, f := range flagsDTO {
-		msg.Flags_[i] = f.Flag
+	if err := json.Unmarshal(msgDTO.Content, &msg.Content); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal msg content: %v", err)
+	}
+	if msg.Content == nil {
+		return nil, fmt.Errorf("nil content")
 	}
 
-	if err := json.Unmarshal(msgDTO.Content, &msg.Content_); err != nil {
+	msg.Flags = make([]string, len(flagsDTO))
+	for i, f := range flagsDTO {
+		msg.Flags[i] = f.Flag
+	}
+
+	if err := json.Unmarshal(msgDTO.Content, &msg.Content); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal content data: %v", err)
 	}
-	if msg.Content_ == nil {
+	if msg.Content == nil {
 		return nil, fmt.Errorf("nil message content data")
 	}
 
-	msg.Parts_ = make([]message.Part, len(partsDTO))
+	msg.Parts = make([]message.Part, len(partsDTO))
 	for i, p := range partsDTO {
 		path, err := message.PathFromString(p.Path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal part %v path: %v", p.ID, err)
 		}
 
-		msg.Parts_[i] = message.Part{
-			ID_:             p.ID,
-			Order:           p.Order,
-			Path_:           path,
-			Inline_:         p.Inline,
-			ExternalBlobID_: p.ExternalBlobID,
+		msg.Parts[i] = message.Part{
+			ID:             p.ID,
+			Order:          p.Order,
+			Path:           path,
+			Inline:         p.Inline,
+			ExternalBlobID: p.ExternalBlobID,
 		}
 
-		if err := json.Unmarshal(p.Content, &msg.Parts_[i].Content_); err != nil {
+		if err := json.Unmarshal(p.Content, &msg.Parts[i].Content); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal part %v content data: %v", p.ID, err)
 		}
 	}

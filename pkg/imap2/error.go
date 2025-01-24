@@ -5,6 +5,7 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/pkg/mimeutils"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
@@ -33,9 +34,13 @@ func (s *session) asIMAPError(err error) error {
 
 	var notFound storeerrors.NotExistsError
 	if errors.As(err, &notFound) {
+		code := imap.ResponseCodeNonExistent
+		if errors.Is(err, folder.ErrNotFound) {
+			code = imap.ResponseCodeTryCreate
+		}
 		return &imap.Error{
 			Type: imap.StatusResponseTypeNo,
-			Code: imap.ResponseCodeNonExistent,
+			Code: code,
 			Text: notFound.Text,
 		}
 	}
@@ -59,6 +64,14 @@ func (s *session) asIMAPError(err error) error {
 			Type: imap.StatusResponseTypeNo,
 			Code: code,
 			Text: logic.Text,
+		}
+	}
+
+	if errors.Is(err, mimeutils.ErrUnknownCTE) {
+		return &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: imap.ResponseCodeUnknownCTE,
+			Text: err.Error(),
 		}
 	}
 

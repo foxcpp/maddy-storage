@@ -17,10 +17,17 @@ type DB struct {
 	db *gorm.DB
 }
 
+func Implementation() string {
+	return impl
+}
+
 func New(path string, cfg Cfg) (DB, error) {
 	db, err := gorm.Open(open(path), &gorm.Config{
 		Logger: sqlcommon.GormLogger{
 			SlowThreshold: cfg.SlowLogThreshold,
+			SkipLogError: func(err error) bool {
+				return IsForeignConstraintError(err) || IsUniqueConstraintError(err)
+			},
 		},
 	})
 	if err != nil {
@@ -62,7 +69,7 @@ func NewMemory(cfg Cfg) (DB, error) {
 	return ret, nil
 }
 
-func (db DB) Tx(ctx context.Context, readOnly bool, fn func(tx DB) error) error {
+func (db DB) Tx(ctx context.Context, readOnly bool, fn func(tx sqlcommon.DB) error) error {
 	return db.Gorm(ctx).Transaction(func(tx *gorm.DB) error {
 		return fn(DB{db: tx})
 	}, &sql.TxOptions{
@@ -71,7 +78,10 @@ func (db DB) Tx(ctx context.Context, readOnly bool, fn func(tx DB) error) error 
 }
 
 func (db DB) Gorm(ctx context.Context) *gorm.DB {
-	return db.db.WithContext(ctx)
+	return db.db.Session(&gorm.Session{
+		//SkipDefaultTransaction: true,
+		Context: ctx,
+	})
 }
 
 func (db DB) SQL() (*sql.DB, error) {
@@ -84,4 +94,23 @@ func (db DB) Close() error {
 		return nil
 	}
 	return sqlDB.Close()
+}
+
+func (db DB) Dialector() string {
+	return db.db.Dialector.Name()
+}
+
+var epoch = time.Date(2025, 2, 11, 0, 0, 0, 0, time.UTC)
+
+func (db DB) ModSeq() (uint64, error) {
+	// TODO: DB-based sequence
+	return uint64(time.Now().Sub(epoch).Milliseconds()), nil
+}
+
+func (db DB) IsUniqueConstraintError(err error) bool {
+	return IsUniqueConstraintError(err)
+}
+
+func (db DB) IsForeignConstraintError(err error) bool {
+	return IsForeignConstraintError(err)
 }

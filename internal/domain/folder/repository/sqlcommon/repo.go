@@ -1,26 +1,29 @@
-package foldersqlite
+package foldersql
 
 import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"regexp"
 	"runtime/trace"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
-	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
+	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
 	"github.com/oklog/ulid/v2"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type repo struct {
-	db sqlite.DB
+	db sqlcommon.DB
 }
 
-func New(db sqlite.DB) folder.Repo {
+func New(db sqlcommon.DB) folder.Repo {
 	return repo{db: db}
 }
 
@@ -84,8 +87,10 @@ func orderKey(o folder.Order) string {
 	}
 }
 
+var _ folder.Repo = &repo{}
+
 func (r repo) GetByID(ctx context.Context, id ulid.ULID) (*folder.Folder, error) {
-	defer trace.StartRegion(ctx, "folder.Repository.GetByID").End()
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.GetByID").End()
 
 	var f folderDTO
 
@@ -104,7 +109,7 @@ func (r repo) GetByID(ctx context.Context, id ulid.ULID) (*folder.Folder, error)
 }
 
 func (r repo) GetByPath(ctx context.Context, accountID ulid.ULID, path string) (*folder.Folder, error) {
-	defer trace.StartRegion(ctx, "folder.Repository.GetByPath").End()
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.GetByPath").End()
 
 	var f folderDTO
 
@@ -142,7 +147,7 @@ func (r repo) getByRegexp(tx *gorm.DB, accountID ulid.ULID, f folder.Filter, ord
 	}
 	if !complete {
 		foldersFiltered := reDTO[:0]
-		for _, f := range foldersFiltered {
+		for _, f := range reDTO {
 			if regex.MatchString(f.Path) {
 				foldersFiltered = append(foldersFiltered, f)
 			}
@@ -154,7 +159,7 @@ func (r repo) getByRegexp(tx *gorm.DB, accountID ulid.ULID, f folder.Filter, ord
 }
 
 func (r repo) GetByAccount(ctx context.Context, accountID ulid.ULID, f folder.Filter, order folder.Order) ([]folder.Folder, error) {
-	defer trace.StartRegion(ctx, "folder.Repository.GetByAccount").End()
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.GetByAccount").End()
 
 	var (
 		dto []folderDTO
@@ -197,7 +202,7 @@ func (r repo) GetByAccount(ctx context.Context, accountID ulid.ULID, f folder.Fi
 }
 
 func (r repo) CountByAccount(ctx context.Context, accountID ulid.ULID, f folder.Filter) (int, error) {
-	defer trace.StartRegion(ctx, "folder.Repository.GetByAccount").End()
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.GetByAccount").End()
 
 	var (
 		cnt int64
@@ -242,7 +247,7 @@ func (r repo) CountByAccount(ctx context.Context, accountID ulid.ULID, f folder.
 }
 
 func (r repo) GetByPrefix(ctx context.Context, accountID ulid.ULID, f folder.Filter, prefixes ...string) ([]folder.Folder, error) {
-	defer trace.StartRegion(ctx, "folder.Repository.GetByPrefix").End()
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.GetByPrefix").End()
 
 	var dtoMap map[ulid.ULID]folderDTO
 
@@ -280,23 +285,26 @@ func (r repo) GetByPrefix(ctx context.Context, accountID ulid.ULID, f folder.Fil
 	}
 
 	sort.Slice(models, func(i, j int) bool {
-		return models[i].CreatedAt_.Before(models[j].CreatedAt_)
+		return models[i].CreatedAt.Before(models[j].CreatedAt)
 	})
 
 	return models, nil
 }
 
 func (r repo) Create(ctx context.Context, f *folder.Folder) error {
-	defer trace.StartRegion(ctx, "folder.Repository.Create").End()
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.Create").End()
 
 	dto := asDTO(f)
 
 	err := r.db.Gorm(ctx).Create(dto).Error
 	if err != nil {
-		if sqlite.IsUniqueConstraintError(err) {
+		if r.db.IsUniqueConstraintError(err) {
 			return folder.ErrAlreadyExists
 		}
-		if sqlite.IsForeignConstraintError(err) {
+		if r.db.IsForeignConstraintError(err) {
+			if f.ParentID == (ulid.ULID{}) {
+				return storeerrors.LogicError{Text: "user account does not exist"}
+			}
 			return storeerrors.LogicError{Text: "parent folder does not exist"}
 		}
 		return storeerrors.InternalError{Reason: err}
@@ -306,7 +314,7 @@ func (r repo) Create(ctx context.Context, f *folder.Folder) error {
 }
 
 func (r repo) Update(ctx context.Context, f *folder.Folder) error {
-	defer trace.StartRegion(ctx, "folder.Repository.Update").End()
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.Update").End()
 
 	dto := asDTO(f)
 
@@ -328,13 +336,13 @@ func (r repo) Update(ctx context.Context, f *folder.Folder) error {
 }
 
 func (r repo) Delete(ctx context.Context, folderID ulid.ULID) error {
-	defer trace.StartRegion(ctx, "folder.Repository.Delete").End()
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.Delete").End()
 
 	err := r.db.Gorm(ctx).
 		Where("folders.id = ?", folderID).
 		Delete(&folderDTO{}).Error
 	if err != nil {
-		if sqlite.IsForeignConstraintError(err) {
+		if r.db.IsForeignConstraintError(err) {
 			return folder.ErrHasChildren
 		}
 		return storeerrors.InternalError{Reason: err}
@@ -348,7 +356,7 @@ func (r repo) RenameMove(
 	oldParent, newParent *folder.Folder,
 	oldName, newName string,
 ) ([]folder.RenamedFolder, error) {
-	defer trace.StartRegion(ctx, "folder.Repository.RenameMove").End()
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.RenameMove").End()
 
 	var data []struct {
 		ID      ulid.ULID `gorm:"id"`
@@ -358,14 +366,14 @@ func (r repo) RenameMove(
 	var oldParentID, newParentID []byte
 	var oldPath, newPath string
 	if oldParent != nil {
-		oldParentID = oldParent.ID_[:]
-		oldPath = oldParent.Path_ + folder.PathSeparator + oldName
+		oldParentID = oldParent.ID[:]
+		oldPath = oldParent.Path + folder.PathSeparator + oldName
 	} else {
 		oldPath = oldName
 	}
 	if newParent != nil {
-		newParentID = newParent.ID_[:]
-		newPath = newParent.Path_ + folder.PathSeparator + newName
+		newParentID = newParent.ID[:]
+		newPath = newParent.Path + folder.PathSeparator + newName
 	} else {
 		newPath = newName
 	}
@@ -377,7 +385,7 @@ func (r repo) RenameMove(
 		}
 
 		// 1. Change parent, update path and name.
-		res1 := r.db.Gorm(ctx).
+		res1 := tx.
 			Raw(`
 				UPDATE folders 
 				SET
@@ -394,10 +402,10 @@ func (r repo) RenameMove(
 				oldParentID, oldPath, oldName).
 			Find(&dataFirst)
 		if err := res1.Error; err != nil {
-			if sqlite.IsUniqueConstraintError(err) {
+			if r.db.IsUniqueConstraintError(err) {
 				return folder.ErrAlreadyExists
 			}
-			if sqlite.IsForeignConstraintError(err) {
+			if r.db.IsForeignConstraintError(err) {
 				return storeerrors.NotExistsError{Text: "parent folder does not exist"}
 			}
 			return storeerrors.InternalError{Reason: err}
@@ -407,7 +415,7 @@ func (r repo) RenameMove(
 		}
 
 		// 2. Update path for children directories (parent_id stays the same).
-		err := r.db.Gorm(ctx).
+		err := tx.
 			Raw(`
 			UPDATE folders SET path = ? || substr(path, ?)
 			WHERE folders.account_id = ? AND folders.path LIKE ? ESCAPE '\'
@@ -415,7 +423,7 @@ func (r repo) RenameMove(
 				newPath, len(oldPath)+1, accountID, likeEscape.Replace(oldPath)+folder.PathSeparator+"%").
 			Find(&data).Error
 		if err != nil {
-			if sqlite.IsUniqueConstraintError(err) { // Pretty much should be impossible, but check just in case.
+			if r.db.IsUniqueConstraintError(err) { // Pretty much should be impossible, but check just in case.
 				return folder.ErrAlreadyExists
 			}
 			return storeerrors.InternalError{Reason: err}
@@ -438,7 +446,7 @@ func (r repo) RenameMove(
 }
 
 func (r repo) DeleteTree(ctx context.Context, accountID ulid.ULID, root string) ([]folder.DeletedFolder, error) {
-	defer trace.StartRegion(ctx, "folder.Repository.DeleteTree").End()
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.DeleteTree").End()
 
 	var data []struct {
 		ID   ulid.ULID
@@ -467,38 +475,73 @@ func (r repo) DeleteTree(ctx context.Context, accountID ulid.ULID, root string) 
 	return ids, err
 }
 
-func (r repo) NextUID(ctx context.Context, folderID ulid.ULID, n int) ([]uint32, error) {
-	defer trace.StartRegion(ctx, "folder.Repository.NextUID").End()
+func addAtConds(q *gorm.DB, at, deletesAt folder.ModSeq) *gorm.DB {
+	// XXX: Duplicated in searcher code.
 
-	if n <= 0 {
-		panic("n must be positive")
+	return q.Where("folder_entries.created_at_modseq <= ?").
+		Where("(folder_entries.deleted_at IS NULL OR folder_entries.deleted_at > ?)", at, deletesAt)
+}
+
+func joinSeqNum(q *gorm.DB, at, deletesAt folder.ModSeq, folders ...ulid.ULID) *gorm.DB {
+	// XXX: Duplicated in searcher code.
+	if at == 0 {
+		panic("ranges.At must be set to use ranges.SeqNum or returnSeq")
 	}
+	if deletesAt == 0 {
+		deletesAt = at
+	}
+	if len(folders) == 0 {
+		return q.Joins(`JOIN (
+			SELECT folder_entries.folder_id AS folder_id, 
+                   folder_entries.uid AS uid,
+			       row_number() OVER (PARTITION BY folder_id ORDER BY uid) AS seq
+			FROM folder_entries
+			JOIN folders ON folders.id = folder_entries.folder_id
+			WHERE folder_entries.created_at_modseq <= ? AND (
+				folder_entries.deleted_at IS NULL OR
+				(folder_entries.deleted_at IS NOT NULL AND folder_entries.modseq > ?))
+		) seqnums 
+		ON seqnums.msg_id = folder_entries.message_id 
+		AND seqnums.folder_id = folder_entries.folder_id`, at, deletesAt)
+	} else {
+		return q.Joins(`JOIN (
+			SELECT folder_entries.folder_id AS folder_id, 
+                   folder_entries.uid AS uid,
+			       row_number() OVER (PARTITION BY folder_id ORDER BY uid) AS seq
+			FROM folder_entries
+			JOIN folders ON folders.id = folder_entries.folder_id
+			WHERE folder_entries.folder_id IN (?)
+			AND folder_entries.created_at_modseq <= ? AND (
+				folder_entries.deleted_at IS NULL OR
+				(folder_entries.deleted_at IS NOT NULL AND folder_entries.modseq > ?))
+		) seqnums 
+		ON seqnums.uid = folder_entries.uid 
+		AND seqnums.folder_id = folder_entries.folder_id`,
+			folders, at, deletesAt)
+	}
+}
 
-	// For SQLite, we store uidnext variable in the folder value.
-	var lastUID uint32
-
-	err := r.db.Gorm(ctx).Raw(`
-		UPDATE folders 
-		SET uid_next = uid_next + ?
-		WHERE folders.id = ?
-		RETURNING uid_next - 1`, n, folderID).Scan(&lastUID).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, folder.ErrNotFound
+func (r repo) addRangeConds(ctx context.Context, q *gorm.DB, rang folder.Range) *gorm.DB {
+	or := r.db.Gorm(ctx)
+	if rang.Values != nil {
+		if rang.SeqNum {
+			or = or.Or("seqnums.seq IN (?)", rang.Values)
+		} else {
+			or = or.Or("folder_entries.uid IN (?)", rang.Values)
 		}
-		return nil, storeerrors.InternalError{Reason: err}
 	}
-
-	uids := make([]uint32, 0, n)
-	for i := lastUID - uint32(n) + 1; i <= lastUID; i++ {
-		uids = append(uids, i)
+	for _, inter := range rang.Intervals {
+		if rang.SeqNum {
+			or = or.Or("seqnums.seq BETWEEN ? AND ?", inter.Since, inter.Until)
+		} else {
+			or = or.Or("folder_entries.uid BETWEEN ? AND ?", inter.Since, inter.Until)
+		}
 	}
-
-	return uids, nil
+	return q.Where(or)
 }
 
 func (r repo) CreateEntry(ctx context.Context, entry ...folder.Entry) error {
-	defer trace.StartRegion(ctx, "folder.Repository.CreateEntry").End()
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.CreateEntry").End()
 
 	dtos := make([]entryDTO, len(entry))
 	for i, ent := range entry {
@@ -507,32 +550,31 @@ func (r repo) CreateEntry(ctx context.Context, entry ...folder.Entry) error {
 
 	err := r.db.Gorm(ctx).Create(dtos).Error
 	if err != nil {
-		if sqlite.IsForeignConstraintError(err) {
+		if r.db.IsForeignConstraintError(err) {
 			return folder.ErrDanglingEntry
 		}
-
-		// TODO: Foreign key constraints, etc.
 		return storeerrors.InternalError{Reason: err}
 	}
 
 	return nil
 }
 
-func (r repo) ReplaceEntries(ctx context.Context, old []folder.Entry, new []folder.Entry) error {
-	defer trace.StartRegion(ctx, "folder.Repository.ReplaceEntries").End()
+func (r repo) ReplaceEntries(ctx context.Context, old []folder.Entry, new []folder.Entry, modSeq folder.ModSeq) error {
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.ReplaceEntries").End()
 
 	err := r.db.Gorm(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, ent := range old {
-			err := r.db.Gorm(ctx).
-				Where("folder_entries.folder_id = ?", ent.FolderID_).
-				Where("folder_entries.msg_id = ?", ent.MsgID_).
-				Delete(&entryDTO{}).Error
+			err := tx.Table("folder_entries").
+				Where("folder_entries.folder_id = ?", ent.FolderID).
+				Where("folder_entries.message_id = ?", ent.MsgID).
+				Where("folder_entries.deleted_at IS NULL").
+				Updates(map[string]interface{}{"deleted_at": time.Now(), "modseq": modSeq}).Error
 			if err != nil {
 				return err
 			}
 		}
 		for _, ent := range new {
-			err := r.db.Gorm(ctx).Create(entryAsDTO(&ent)).Error
+			err := tx.Create(entryAsDTO(&ent)).Error
 			if err != nil {
 				return err
 			}
@@ -543,141 +585,172 @@ func (r repo) ReplaceEntries(ctx context.Context, old []folder.Entry, new []fold
 	return err
 }
 
-func (r repo) GetEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ranges ...folder.UIDRange) ([]folder.Entry, error) {
-	defer trace.StartRegion(ctx, "folder.Repository.GetEntryByUIDRange").End()
+func (r repo) GetEntryByRange(ctx context.Context, folderID ulid.ULID, ranges folder.Range, returnSeq bool) ([]folder.Entry, error) {
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.GetEntryByRange").End()
 
-	if len(ranges) == 1 {
-		var entries []entryDTO
+	var entries []entryDTO
 
-		err := r.db.Gorm(ctx).
-			Model(&entries).
-			Where("folder_entries.folder_id = ?", folderID).
-			Where("folder_entries.uid BETWEEN ? AND ?", ranges[0].Since, ranges[0].Until).
-			Find(&entries).Error
-		if err != nil {
-			return nil, err
-		}
+	q := r.db.Gorm(ctx).Select("folder_entries.*, seqnums.seq AS seq").
+		Table("folder_entries").
+		Where("folder_entries.folder_id = ?", folderID)
 
-		models := make([]folder.Entry, 0, len(entries))
-		for _, ent := range entries {
-			models = append(models, *entryAsModel(&ent))
-		}
-		return models, nil
+	if ranges.SeqNum || returnSeq {
+		q = joinSeqNum(q, ranges.At, ranges.DeletesAt, folderID)
+	} else if ranges.At != 0 {
+		q = addAtConds(q, ranges.At, ranges.DeletesAt)
 	} else {
-		entryMap := make(map[uint32]entryDTO)
-
-		err := r.db.Gorm(ctx).Transaction(func(tx *gorm.DB) error {
-			for _, r := range ranges {
-				var entries []entryDTO
-
-				err := tx.Model(&entries).
-					Where("folder_entries.folder_id = ?", folderID).
-					Where("folder_entries.uid BETWEEN ? AND ?", r.Since, r.Until).
-					Find(&entries).Error
-				if err != nil {
-					return err
-				}
-
-				for _, ent := range entries {
-					entryMap[ent.UID] = ent
-				}
-			}
-			return nil
-		}, &sql.TxOptions{
-			Isolation: sql.LevelRepeatableRead,
-			ReadOnly:  true,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		models := make([]folder.Entry, 0, len(entryMap))
-		for _, ent := range entryMap {
-			models = append(models, *entryAsModel(&ent))
-		}
-
-		return models, nil
+		q = q.Where("folder_entries.deleted_at IS NULL")
 	}
+	q = r.addRangeConds(ctx, q, ranges)
+
+	err := q.Find(&entries).Error
+	if err != nil {
+		return nil, err
+	}
+
+	models := make([]folder.Entry, 0, len(entries))
+	for _, ent := range entries {
+		models = append(models, *entryAsModel(&ent))
+	}
+	return models, nil
 }
 
-func (r repo) CountEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ranges ...folder.UIDRange) (int, error) {
-	defer trace.StartRegion(ctx, "folder.Repository.CountEntryByUIDRange").End()
+func (r repo) CountEntryByRange(ctx context.Context, folderID ulid.ULID, ranges folder.Range) (int, error) {
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.CountEntryByRange").End()
 
-	if len(ranges) == 1 {
-		var cnt int64
-		err := r.db.Gorm(ctx).
-			Model(&entryDTO{}).
-			Where("folder_entries.folder_id = ?", folderID).
-			Where("folder_entries.uid BETWEEN ? AND ?", ranges[0].Since, ranges[0].Until).
-			Count(&cnt).Error
-		return int(cnt), err
+	var cnt int64
+	q := r.db.Gorm(ctx).
+		Table("folder_entries").
+		Where("folder_entries.folder_id = ?", folderID)
+
+	if ranges.SeqNum {
+		q = joinSeqNum(q, ranges.At, ranges.DeletesAt, folderID)
+	} else if ranges.At != 0 {
+		q = addAtConds(q, ranges.At, ranges.DeletesAt)
 	} else {
-		var entryMap map[uint32]bool
-		err := r.db.Gorm(ctx).Transaction(func(tx *gorm.DB) error {
-			for _, r := range ranges {
-				var entries []entryDTO
-
-				err := tx.Model(&entries).
-					Where("folder_entries.folder_id = ?", folderID).
-					Where("folder_entries.uid BETWEEN ? AND ?", r.Since, r.Until).
-					Find(&entries).Error
-				if err != nil {
-					return err
-				}
-
-				for _, ent := range entries {
-					entryMap[ent.UID] = true
-				}
-			}
-			return nil
-		}, &sql.TxOptions{
-			Isolation: sql.LevelRepeatableRead,
-			ReadOnly:  true,
-		})
-		if err != nil {
-			return 0, err
-		}
-		return len(entryMap), nil
+		q = q.Where("folder_entries.deleted_at IS NULL")
 	}
+	q = r.addRangeConds(ctx, q, ranges)
+
+	err := q.Count(&cnt).Error
+	return int(cnt), err
 }
 
-func (r repo) DeleteEntryByUIDRange(ctx context.Context, folderID ulid.ULID, ranges ...folder.UIDRange) error {
-	defer trace.StartRegion(ctx, "folder.Repository.DeleteEntryByUIDRange").End()
+func (r repo) DeleteEntryByIDs(ctx context.Context, folderID ulid.ULID, ids []ulid.ULID, modSeq folder.ModSeq) ([]folder.Entry, error) {
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.DeleteEntryByIDs").End()
 
-	if len(ranges) == 1 {
-		err := r.db.Gorm(ctx).
-			Where("folder_entries.folder_id = ?", folderID).
-			Where("folder_entries.uid BETWEEN ? AND ?", ranges[0].Since, ranges[0].Until).
-			Delete(&entryDTO{}).Error
-		if err != nil {
-			return err
-		}
-		return nil
-	} else {
-		err := r.db.Gorm(ctx).Transaction(func(tx *gorm.DB) error {
-			for _, r := range ranges {
-				err := tx.
-					Where("folder_entries.folder_id = ?", folderID).
-					Where("folder_entries.uid BETWEEN ? AND ?", r.Since, r.Until).
-					Delete(&entryDTO{}).Error
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		}, &sql.TxOptions{
-			Isolation: sql.LevelRepeatableRead,
-		})
-		if err != nil {
-			return err
-		}
+	now := time.Now()
+	var entries []entryDTO
 
-		return nil
+	err := r.db.Gorm(ctx).Raw(`
+		UPDATE folder_entries
+		SET deleted_at = ?, modseq = ?
+		WHERE folder_id = ? AND message_id IN (?) AND deleted_at IS NULL
+		RETURNING *`,
+		now, modSeq, folderID, ids,
+	).Find(&entries).Error
+	if err != nil {
+		return nil, err
 	}
+
+	models := make([]folder.Entry, 0, len(entries))
+	for _, ent := range entries {
+		models = append(models, *entryAsModel(&ent))
+	}
+	return models, nil
+}
+
+func (r repo) DeleteEntryByRange(ctx context.Context, folderID ulid.ULID, ranges folder.Range, returnSeq bool) ([]folder.Entry, error) {
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.DeleteEntryByRange").End()
+
+	now := time.Now()
+	var entries []entryDTO
+
+	q := r.db.Gorm(ctx).Table("folder_entries").
+		Clauses(clause.Returning{}).
+		Where("folder_entries.folder_id = ?", folderID)
+
+	if ranges.SeqNum || returnSeq {
+		q = joinSeqNum(q, ranges.At, ranges.DeletesAt, folderID)
+	} else if ranges.At != 0 {
+		q = addAtConds(q, ranges.At, ranges.DeletesAt)
+	} else {
+		q = q.Where("folder_entries.deleted_at IS NULL")
+	}
+	q = r.addRangeConds(ctx, q, ranges)
+
+	err := q.Update("deleted_at", now).Error
+	if err != nil {
+		return nil, err
+	}
+
+	models := make([]folder.Entry, 0, len(entries))
+	for _, ent := range entries {
+		models = append(models, *entryAsModel(&ent))
+	}
+	return models, nil
+}
+
+func (r repo) UsedFlags(ctx context.Context, folderID ulid.ULID) ([]string, error) {
+	var flags []string
+	err := r.db.Gorm(ctx).
+		Select("message_flags.flag").
+		Table("folder_entries").
+		Joins("JOIN message_flags ON folder_entries.message_id = message_flags.message_id").
+		Where("folder_entries.folder_id = ?", folderID).
+		Where("folder_entries.deleted_at IS NULL").
+		Pluck("message_flags.flag", &flags).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch used flags for folder %v: %w", folderID, err)
+	}
+	return flags, nil
+}
+
+func (r repo) DeletedEntries(ctx context.Context, folderID ulid.ULID, deletedLt time.Time, limit int) ([]folder.Entry, error) {
+	var entries []entryDTO
+	err := r.db.Gorm(ctx).Table("folder_entries").
+		Where("folder_entries.folder_id = ?", folderID).
+		Where("folder_entries.deleted_at < ?", deletedLt).
+		Order("folder_entries.deleted_at").
+		Limit(limit).
+		Find(&entries).Error
+	if err != nil {
+		return nil, err
+	}
+
+	models := make([]folder.Entry, 0, len(entries))
+	for _, ent := range entries {
+		models = append(models, *entryAsModel(&ent))
+	}
+	return models, nil
+}
+
+func (r repo) TouchEntries(ctx context.Context, folderID ulid.ULID, ids []ulid.ULID, modSeq folder.ModSeq) (map[ulid.ULID]folder.ModSeq, error) {
+	resMap := make(map[ulid.ULID]folder.ModSeq, len(ids))
+	rows, err := r.db.Gorm(ctx).Raw(`
+		UPDATE folder_entries
+		SET modseq = max(modseq, ?)
+		WHERE folder_id = ? 
+		AND message_id IN (?)
+		RETURNING message_id, modseq`,
+		modSeq, folderID, ids).Rows()
+	if err != nil {
+		return nil, storeerrors.InternalError{Reason: err}
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id ulid.ULID
+		var modSeq uint64
+		if err := rows.Scan(&id, &modSeq); err != nil {
+			return nil, storeerrors.InternalError{Reason: err}
+		}
+		resMap[id] = folder.ModSeq(modSeq)
+	}
+	return resMap, nil
 }
 
 func (r repo) Tx(ctx context.Context, readOnly bool, f func(r folder.Repo) error) error {
-	return r.db.Tx(ctx, readOnly, func(tx sqlite.DB) error {
+	return r.db.Tx(ctx, readOnly, func(tx sqlcommon.DB) error {
 		txRepo := repo{db: tx}
 		return f(txRepo)
 	})

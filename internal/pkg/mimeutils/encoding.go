@@ -1,8 +1,9 @@
 package mimeutils
 
 import (
+	"bytes"
 	"encoding/base64"
-	"fmt"
+	"errors"
 	"io"
 	"mime/quotedprintable"
 	"strings"
@@ -29,6 +30,76 @@ func (r *whitespaceReplacingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+type lineWrapper struct {
+	w          io.Writer
+	maxLineLen int
+
+	curLineLen int
+	cr         bool
+}
+
+func (w *lineWrapper) Write(b []byte) (int, error) {
+	var written int
+	for len(b) > 0 {
+		var l []byte
+		l, b = cutLine(b, w.maxLineLen-w.curLineLen)
+
+		lf := bytes.HasSuffix(l, []byte("\n"))
+		l = bytes.TrimSuffix(l, []byte("\n"))
+
+		n, err := w.w.Write(l)
+		if err != nil {
+			return written, err
+		}
+		written += n
+
+		cr := bytes.HasSuffix(l, []byte("\r"))
+		if len(l) == 0 {
+			cr = w.cr
+		}
+
+		if !lf && len(b) == 0 {
+			w.curLineLen += len(l)
+			w.cr = cr
+			break
+		}
+		w.curLineLen = 0
+
+		ending := []byte("\r\n")
+		if cr {
+			ending = []byte("\n")
+		}
+		_, err = w.w.Write(ending)
+		if err != nil {
+			return written, err
+		}
+		// If the written `\n` was part of the input bytes slice, then account for it.
+		if lf {
+			written++
+		}
+		w.cr = false
+	}
+
+	return written, nil
+}
+
+func cutLine(b []byte, max int) ([]byte, []byte) {
+	for i := 0; i < len(b); i++ {
+		if b[i] == '\r' && i == max {
+			continue
+		}
+		if b[i] == '\n' {
+			return b[:i+1], b[i+1:]
+		}
+		if i >= max {
+			return b[:i], b[i:]
+		}
+	}
+	return b, nil
+}
+
+var ErrUnknownCTE = errors.New("unknown CTE")
+
 func EncodingReader(enc string, r io.Reader) (io.Reader, error) {
 	var dec io.Reader
 	switch strings.ToLower(enc) {
@@ -40,12 +111,35 @@ func EncodingReader(enc string, r io.Reader) (io.Reader, error) {
 	case "7bit", "8bit", "binary", "":
 		dec = r
 	default:
-		return nil, fmt.Errorf("unhandled encoding %q", enc)
+		return nil, ErrUnknownCTE
 	}
 	return dec, nil
 }
 
 func DecodedCopy(to io.Writer, r io.Reader, enc string) (int64, error) {
+	r, err := EncodingReader(enc, r)
+	if err != nil {
+		return 0, err
+	}
+	return io.Copy(to, r)
+}
+
+func EncodingWriter(enc string, w io.Writer) (io.Writer, error) {
+	var encoded io.Writer
+	switch strings.ToLower(enc) {
+	case "quoted-printable":
+		encoded = quotedprintable.NewWriter(w)
+	case "base64":
+		encoded = base64.NewEncoder(base64.StdEncoding, &lineWrapper{w: w, maxLineLen: 76})
+	case "7bit", "8bit", "binary", "":
+		encoded = w // Line wrapping is preserved as-is.
+	default:
+		return nil, ErrUnknownCTE
+	}
+	return encoded, nil
+}
+
+func EncodedCopy(to io.Writer, r io.Reader, enc string) (int64, error) {
 	r, err := EncodingReader(enc, r)
 	if err != nil {
 		return 0, err

@@ -2,28 +2,33 @@ package folder
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 )
 
 type Entry struct {
-	FolderID_ ulid.ULID
-	MsgID_    ulid.ULID
-	UID_      uint32
+	FolderID        ulid.ULID
+	MsgID           ulid.ULID
+	IMAPUID         uint32
+	ModSeq          ModSeq
+	CreatedAtModSeq ModSeq
+	SeqNum          uint32 // Read-only from DB, empty on creation
+	CreatedAt       time.Time
+	DeletedAt       time.Time // Returned only by watcher or DeletedEntries
 }
-
-func (e Entry) FolderID() ulid.ULID { return e.FolderID_ }
-func (e Entry) MsgID() ulid.ULID    { return e.MsgID_ }
-func (e Entry) UID() uint32         { return e.UID_ }
 
 func (e Entry) String() string {
-	return fmt.Sprintf("{FolderID: %v, MsgID: %v, UID: %v}", e.FolderID_, e.MsgID_, e.UID_)
+	return fmt.Sprintf("{FolderID: %v, MsgID: %v, UID: %v}", e.FolderID, e.MsgID, e.IMAPUID)
 }
 
-func NewEntry(folderID, msgID ulid.ULID, uid uint32) Entry {
+func NewEntry(folderID, msgID ulid.ULID, uid uint32, modSeq ModSeq, createdAt time.Time) Entry {
 	return Entry{
-		FolderID_: folderID,
-		MsgID_:    msgID,
-		UID_:      uid,
+		FolderID:        folderID,
+		MsgID:           msgID,
+		IMAPUID:         uid,
+		CreatedAtModSeq: modSeq,
+		ModSeq:          modSeq,
+		CreatedAt:       createdAt,
 	}
 }

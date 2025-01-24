@@ -5,20 +5,17 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/oklog/ulid/v2"
 )
 
 type Account struct {
-	ID_        ulid.ULID
-	Name_      string
-	CreatedAt_ time.Time
-	UpdatedAt_ time.Time
+	ID        ulid.ULID
+	Name      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Namespace folder.Namespace // Root folder namespace configuration.
 }
-
-func (a *Account) ID() ulid.ULID        { return a.ID_ }
-func (a *Account) Name() string         { return a.Name_ }
-func (a *Account) CreatedAt() time.Time { return a.CreatedAt_ }
-func (a *Account) UpdatedAt() time.Time { return a.UpdatedAt_ }
 
 func NewAccount(name string) (*Account, error) {
 	if !utf8.ValidString(name) {
@@ -27,9 +24,9 @@ func NewAccount(name string) (*Account, error) {
 
 	now := time.Now()
 	return &Account{
-		ID_:        ulid.Make(),
-		Name_:      name,
-		CreatedAt_: now,
-		UpdatedAt_: now,
+		ID:        ulid.Make(),
+		Name:      name,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}, nil
 }

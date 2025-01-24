@@ -4,21 +4,29 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/account"
-	accountsqlite "github.com/foxcpp/maddy-storage/internal/domain/account/repository/sqlite"
+	accountsql "github.com/foxcpp/maddy-storage/internal/domain/account/repository/sqlite"
+	"github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/blob"
 	storefs "github.com/foxcpp/maddy-storage/internal/domain/blob/store/fs"
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent/sqlcommon"
+	foldersql "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlcommon"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
-	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
+	"github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
+	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
+	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlcommon"
+	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher/scan"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
-	"github.com/foxcpp/maddy-storage/internal/usecase"
 	"github.com/foxcpp/maddy-storage/pkg/imap2"
 	"go.uber.org/zap"
 )
@@ -38,10 +46,14 @@ func main() {
 	var (
 		accountsRepo  account.Repo
 		folderRepo    folder.Repo
+		imapRepo      folder.IMAPRepo
 		messageRepo   message.Repo
 		changelogRepo changelog.Repo
 		blobStore     blob.Store
 		tempBlobStore blob.Store
+		searcher      searcher.Searcher
+		recents       recent.Tracker
+		watcher       folder.Watcher
 	)
 	tempBlobStore = storefs.New(os.TempDir())
 	if *sqliteDB != "" {
@@ -50,10 +62,20 @@ func main() {
 			logger.Fatal("failed to init db", zap.Error(err))
 		}
 
-		accountsRepo = accountsqlite.New(db)
-		folderRepo = foldersqlite.New(db)
+		accountsRepo = accountsql.New(db)
+		folderRepo = foldersql.New(db)
+		imapRepo = foldersqlite.New(db)
 		messageRepo = messagesqlite.New(db)
 		changelogRepo = changelogsqlite.New(db)
+
+		searcher = scan.New(scan.Cfg{
+			BatchSize: 10,
+		}, searchersql.New(db, searchersql.Cfg{
+			MaxResults: 1000,
+		}), messageRepo, blobStore)
+
+		recents = recentsql.New(db)
+		watcher = foldersql.NewWatcher(1*time.Second, db)
 	}
 	if *blobFS != "" {
 		blobStore = storefs.New(*blobFS)
@@ -68,10 +90,31 @@ func main() {
 
 	backend := imap2.New(
 		cfg, logger,
-		usecase.NewAccount(accountsRepo, usecase.StubAuth{}, changelogRepo),
-		usecase.NewFolder(folderRepo, changelogRepo),
-		messageusecase.New(messageusecase.Config{},
-			folderRepo, messageRepo, blobStore, tempBlobStore, changelogRepo),
+		accountusecase.NewAccount(
+			accountusecase.Cfg{},
+			accountsRepo,
+			folderRepo,
+			imapRepo,
+			accountusecase.StubAuth{},
+			changelogRepo,
+		),
+		folderusecase.New(
+			folderRepo,
+			imapRepo,
+			changelogRepo,
+			searcher,
+		),
+		messageusecase.New(
+			messageusecase.Config{},
+			folderRepo,
+			imapRepo,
+			messageRepo,
+			searcher,
+			blobStore,
+			tempBlobStore,
+			changelogRepo,
+		),
+		recents, watcher,
 	)
 	srv := imapserver.New(backend.Options())
 	defer srv.Close()

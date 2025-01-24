@@ -5,17 +5,17 @@ CREATE TABLE accounts (
       name TEXT NOT NULL UNIQUE,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      namespace BLOB NOT NULL DEFAULT x'7b7d', -- {}
 
       UNIQUE(name)
 ) WITHOUT ROWID;
 
 CREATE TABLE folders (
      id BLOB NOT NULL PRIMARY KEY,
-     parent_id TEXT DEFAULT NULL
+     parent_id BLOB DEFAULT NULL
          REFERENCES folders(id)
-             ON UPDATE CASCADE ON DELETE NO ACTION
-             DEFERRABLE INITIALLY DEFERRED,
-     account_id TEXT NOT NULL
+             ON UPDATE CASCADE ON DELETE RESTRICT,
+     account_id BLOB NOT NULL
          REFERENCES accounts(id)
              ON UPDATE CASCADE ON DELETE CASCADE,
 
@@ -26,9 +26,6 @@ CREATE TABLE folders (
      subscribed INTEGER NOT NULL DEFAULT 1,
      sort_order INTEGER NOT NULL DEFAULT 1,
 
-     uid_validity INTEGER NOT NULL DEFAULT (abs(random())),
-     uid_next INTEGER NOT NULL DEFAULT 1,
-
      meta BLOB NOT NULL DEFAULT x'7b7d', -- {}
      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -36,14 +33,26 @@ CREATE TABLE folders (
      UNIQUE(account_id, path),
      UNIQUE(parent_id, name),
      UNIQUE(account_id, role),
-     CHECK(uid_validity > 0),
-     CHECK(uid_next > 0),
      CHECK(path LIKE '%/' || name OR path = name)
+) WITHOUT ROWID;
+
+CREATE TABLE imap_folders(
+    folder_id BLOB NOT NULL PRIMARY KEY
+        REFERENCES folders(id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+    uid_validity INTEGER NOT NULL DEFAULT (abs(random())),
+    uid_next INTEGER NOT NULL DEFAULT 1
+
+    CHECK(uid_next > 0),
+    CHECK(uid_validity > 0)
 ) WITHOUT ROWID;
 
 CREATE TABLE messages (
       id BLOB NOT NULL PRIMARY KEY,
       date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      total_size INTEGER NOT NULL DEFAULT 0,
+      modseq INTEGER NOT NULL,
+      created_at_modseq INTEGER NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       meta BLOB NOT NULL DEFAULT x'7b7d', -- {}
@@ -54,14 +63,37 @@ CREATE TABLE folder_entries (
     folder_id BLOB NOT NULL
         REFERENCES folders(id)
             ON UPDATE CASCADE ON DELETE CASCADE,
-    message_id BLOB NOT NULL
+    message_id BLOB DEFAULT NULL
         REFERENCES messages(id)
-            ON UPDATE CASCADE ON DELETE CASCADE,
-    uid INTEGER NOT NULL DEFAULT 1,
+            ON UPDATE CASCADE ON DELETE SET NULL,
+
+    uid INTEGER NOT NULL,
+    modseq INTEGER NOT NULL,
+    created_at_modseq INTEGER NOT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP DEFAULT NULL,
 
     UNIQUE(folder_id, uid),
     CHECK(uid > 0)
 );
+
+CREATE TABLE modseq (
+    account_id BLOB NOT NULL PRIMARY KEY
+        REFERENCES accounts(id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+    modseq INTEGER NOT NULL DEFAULT 1
+) WITHOUT ROWID;
+
+CREATE TABLE recent_uids (
+    folder_id BLOB NOT NULL
+        REFERENCES folders(id)
+            ON UPDATE CASCADE ON DELETE CASCADE,
+    uid INTEGER NOT NULL,
+    modseq INTEGER NOT NULL,
+
+    PRIMARY KEY(folder_id, uid)
+) WITHOUT ROWID;
 
 CREATE TABLE message_flags (
     message_id BLOB NOT NULL
@@ -86,14 +118,50 @@ CREATE TABLE message_parts (
     UNIQUE(message_id, path)
 ) WITHOUT ROWID;
 
+CREATE TABLE messages_external_id_counters (
+    external_id TEXT NOT NULL PRIMARY KEY,
+    copies INTEGER NOT NULL DEFAULT 1,
+
+    CHECK(copies >= 0)
+) STRICT, WITHOUT ROWID;
+CREATE UNIQUE INDEX messages_external_id_counters_pending_delete
+    ON messages_external_id_counters(external_id)
+    WHERE copies = 0;
+
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE TRIGGER messages_external_id_counters_inc
+    BEFORE INSERT ON message_parts
+    FOR EACH ROW WHEN NEW.external_blob_id IS NOT NULL
+BEGIN
+    INSERT INTO messages_external_id_counters(external_id)
+    VALUES (NEW.external_blob_id)
+        ON CONFLICT (external_id) DO
+    UPDATE SET copies = copies + 1;
+END;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE TRIGGER messages_external_id_counters_dec
+    BEFORE DELETE ON message_parts
+    FOR EACH ROW WHEN OLD.external_blob_id IS NOT NULL
+BEGIN
+    UPDATE messages_external_id_counters
+    SET copies = copies - 1
+    WHERE external_id = OLD.external_blob_id;
+END;
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 
+DROP TABLE messages_external_id_counters;
+
 DROP TABLE message_parts;
 DROP TABLE message_flags;
 DROP TABLE folder_entries;
+DROP TABLE recent_uids;
 DROP TABLE messages;
 
 DROP TABLE folders;

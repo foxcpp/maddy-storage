@@ -19,7 +19,7 @@ func (a AppProvider) listAccounts(c *cli.Context) error {
 
 	fmt.Printf("ID\tNAME\tCREATED\n")
 	for _, acct := range accts {
-		fmt.Printf("%v\t%v\t%v\n", acct.ID_, acct.Name_, acct.CreatedAt_)
+		fmt.Printf("%v\t%v\t%v\n", acct.ID, acct.Name, acct.CreatedAt)
 	}
 	return nil
 }
@@ -39,7 +39,7 @@ func (a AppProvider) createAccount(c *cli.Context) error {
 		return err
 	}
 
-	fmt.Println(acct.ID_)
+	fmt.Println(acct.ID)
 
 	return nil
 }
