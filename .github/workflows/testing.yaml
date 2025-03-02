@@ -30,7 +30,7 @@ jobs:
           go-version-file: 'go.mod'
       - name: "Unit & module tests"
         run: |
-          go test ./... -coverprofile=coverage.out -covermode=atomic
+          go test ./...
   imaptest:
     name: "Run imaptest"
     runs-on: ubuntu-24.04
@@ -52,5 +52,4 @@ jobs:
             -test.imaptest.binary /usr/local/bin/imaptest \
             -test.imaptest-rawlog \
             -test.imaptest-dir \
-            $PWD/imaptest-latest/src/tests \
-            -coverprofile=coverage.out -covermode=atomic
+            $PWD/imaptest-latest/src/tests
