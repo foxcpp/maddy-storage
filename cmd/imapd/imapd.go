@@ -123,5 +123,4 @@ func main() {
 	if err := srv.ListenAndServe(*addr); err != nil {
 		logger.Fatal("failed to listen", zap.Error(err))
 	}
-
 }

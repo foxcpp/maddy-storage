@@ -66,7 +66,6 @@ func (uc *Usecase) Delete(
 		}
 		delIDs = append(delIDs, m.MessageID)
 		seqByUID[m.UID] = m.SeqNum
-
 	}
 	if len(delIDs) == 0 {
 		return deleted, nil

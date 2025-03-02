@@ -124,13 +124,6 @@ func (s *Searcher) addConditions(ctx context.Context, q *gorm.DB, filter *search
 	return q
 }
 
-func addAtConds(q *gorm.DB, at, deletesAt folder.ModSeq) *gorm.DB {
-	// XXX: Duplicated in searcher code.
-
-	return q.Where("folder_entries.created_at_modseq <= ?").
-		Where("(folder_entries.deleted_at IS NULL OR folder_entries.deleted_at > ?)", at, deletesAt)
-}
-
 func joinSeqNum(q *gorm.DB, at, deletesAt folder.ModSeq, folders ...ulid.ULID) *gorm.DB {
 	// XXX: Duplicated in searcher code.
 	if at == 0 {

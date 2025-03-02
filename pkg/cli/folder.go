@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	"github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
+	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	"github.com/urfave/cli/v2"
 )
 

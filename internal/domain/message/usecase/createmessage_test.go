@@ -11,7 +11,7 @@ import (
 
 	"github.com/foxcpp/maddy-storage/internal/domain/account"
 	accountsqlite "github.com/foxcpp/maddy-storage/internal/domain/account/repository/sqlite"
-	"github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
+	accountusecase "github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/blob"
 	storememory "github.com/foxcpp/maddy-storage/internal/domain/blob/store/memory"
 	changelogsqlite "github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
