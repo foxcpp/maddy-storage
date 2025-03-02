@@ -49,7 +49,7 @@ jobs:
         run: |
           go test -tags imaptest ./tests/imap2 \
             -run '^TestImaptest.*$' \
-            -test.imaptest.binary /usr/local/bin/imaptest \
+            -test.imaptest /usr/local/bin/imaptest \
             -test.imaptest-rawlog \
             -test.imaptest-dir \
             $PWD/imaptest-latest/src/tests

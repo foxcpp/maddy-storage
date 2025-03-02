@@ -9,7 +9,8 @@ import (
 
 func (uc *Usecase) Search(
 	ctx context.Context, accountID, folderID ulid.ULID,
-	cond *searcher.Cond, opts searcher.Opts) (searcher.SearchResult, error) {
+	cond *searcher.Cond, opts searcher.Opts,
+) (searcher.SearchResult, error) {
 
 	if cond == nil {
 		cond = &searcher.Cond{}

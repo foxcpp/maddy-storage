@@ -270,7 +270,6 @@ func (r repo) GetByPrefix(ctx context.Context, accountID ulid.ULID, f folder.Fil
 			}
 		}
 		return nil
-
 	}, &sql.TxOptions{
 		Isolation: sql.LevelRepeatableRead,
 		ReadOnly:  true,

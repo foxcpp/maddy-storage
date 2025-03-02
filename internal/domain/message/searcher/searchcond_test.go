@@ -69,5 +69,4 @@ func TestSearchCond_SplitMetaBody(t *testing.T) {
 			require.Equal(t, c.Output.Body, split.Body, "body cond does not match")
 		})
 	}
-
 }

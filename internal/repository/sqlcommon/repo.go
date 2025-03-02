@@ -13,9 +13,6 @@ type DB interface {
 	Gorm(ctx context.Context) *gorm.DB
 	SQL() (*sql.DB, error)
 	Close() error
-	// ModSeq generates DB-backed monotonically increasing counter used for tracking
-	// changes.
-	ModSeq() (uint64, error)
 	IsUniqueConstraintError(err error) bool
 	IsForeignConstraintError(err error) bool
 }

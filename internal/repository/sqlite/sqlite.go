@@ -100,13 +100,6 @@ func (db DB) Dialector() string {
 	return db.db.Dialector.Name()
 }
 
-var epoch = time.Date(2025, 2, 11, 0, 0, 0, 0, time.UTC)
-
-func (db DB) ModSeq() (uint64, error) {
-	// TODO: DB-based sequence
-	return uint64(time.Now().Sub(epoch).Milliseconds()), nil
-}
-
 func (db DB) IsUniqueConstraintError(err error) bool {
 	return IsUniqueConstraintError(err)
 }

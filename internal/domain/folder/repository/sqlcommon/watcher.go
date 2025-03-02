@@ -110,7 +110,6 @@ func (w Watcher) Sync(ctx context.Context, folders []ulid.ULID, since, deletesSi
 		models = append(models, change)
 	}
 	return models, nil
-
 }
 
 func (w Watcher) Wait(ctx context.Context, folders []ulid.ULID, since, deletesSince folder.ModSeq, types folder.ChangeType) ([]folder.EntryChange, error) {

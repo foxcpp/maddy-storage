@@ -402,12 +402,10 @@ func (s *session) Expunge(w *imapserver.ExpungeWriter, uids *imap.UIDSet) error 
 
 	var uidsRange folder.Range
 	if uids != nil {
-		if imap.IsSearchRes(uids) {
-			uids = &s.mbox.SavedSearchResult
-		}
-		if uids == nil {
-			empty := imap.UIDSetNum()
-			uids = &empty
+		var err error
+		uidsRange, err = s.mbox.idsAsRange(uids)
+		if err != nil {
+			return s.asIMAPError(err)
 		}
 	}
 
@@ -1131,29 +1129,6 @@ func (s *session) applyOtherUpdates(ctx context.Context, w *imapserver.UpdateWri
 
 	s.mbox.MaxUID = newMaxUID
 	s.mbox.At = newAt
-
-	return nil
-}
-
-func (s *session) syncDeletesOnly(ctx context.Context, w ExpungeWriter) error {
-	log := contextlog.FromContext(ctx)
-
-	entries, err := s.b.watcher.Sync(
-		ctx, []ulid.ULID{s.mbox.FolderID},
-		s.mbox.At, s.mbox.DeletesAt, folder.ChangeMessageDeleted,
-	)
-	if err != nil {
-		log.Error("watcher error, ignoring updates", zap.Error(err))
-	}
-
-	if err := s.applyExpungeUpdates(ctx, w, entries); err != nil {
-		if errors.Is(err, context.Canceled) {
-			return nil
-		}
-
-		log.Error("error in applyExpungeUpdates", zap.Error(err))
-		return s.c.Bye("Synchronization failed, terminating connection to prevent corruption")
-	}
 
 	return nil
 }
