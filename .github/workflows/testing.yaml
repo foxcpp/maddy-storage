@@ -1,0 +1,56 @@
+name: Testing
+
+on:
+  push:
+    branches: [ master, dev ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ master, dev ]
+
+jobs:
+  golangci:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.60
+          args: "--timeout=30m"
+  test:
+    name: "Build and test"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: "Unit & module tests"
+        run: |
+          go test ./... -coverprofile=coverage.out -covermode=atomic
+  imaptest:
+    name: "Run imaptest"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: "Install imaptest"
+        run: |
+          wget -O /usr/local/bin/imaptest 'https://github.com/dovecot/imaptest/releases/download/latest/imaptest-x86_64-ubuntu-24.04'
+          chmod +x /usr/local/bin/imaptest
+          wget -O imaptest-latest.zip 'https://github.com/dovecot/imaptest/archive/refs/tags/latest.zip'
+          unzip imaptest-latest.zip
+      - name: imaptest
+        run: |
+          go test -tags imaptest ./tests/imap2 \
+            -run '^TestImaptest.*$' \
+            -test.imaptest.binary /usr/local/bin/imaptest \
+            -test.imaptest-rawlog \
+            -test.imaptest-dir \
+            $PWD/imaptest-latest/src/tests \
+            -coverprofile=coverage.out -covermode=atomic

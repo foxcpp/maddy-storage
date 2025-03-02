@@ -1,3 +1,5 @@
+//go:build imaptest
+
 package imap2
 
 import (
