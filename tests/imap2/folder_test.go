@@ -30,7 +30,8 @@ func TestFolderCreate(t *testing.T) {
 	c.Writeln(". CREATE testfolder2")
 	c.ExpectNO("ALREADYEXISTS")
 
-	c.Writeln(`. LIST "%" ""`)
+	c.Writeln(`. LIST "" "%"`)
+	c.ExpectPattern(`\* LIST (\\Inbox \\HasNoChildren) "/" INBOX`)
 	c.ExpectPattern(`\* LIST (\\HasChildren) "/" "testfolder"`)
 	c.ExpectPattern(`\* LIST (\\HasNoChildren) "/" "testfolder/subfolder"`)
 	c.ExpectPattern(`\* LIST (\\HasChildren) "/" "testfolder2"`)
@@ -61,7 +62,8 @@ func TestFolderDelete(t *testing.T) {
 	c.Writeln(". DELETE testfolder")
 	c.ExpectOK()
 
-	c.Writeln(`. LIST "%" ""`)
+	c.Writeln(`. LIST "" "%"`)
+	c.ExpectPattern(`\* LIST (\\Inbox \\HasNoChildren) "/" INBOX`)
 	c.ExpectPattern(`\* LIST (\\HasChildren) "/" "testfolder2"`)
 	c.ExpectPattern(`\* LIST (\\HasNoChildren) "/" "testfolder2/subfolder"`)
 	c.ExpectOK()
@@ -91,7 +93,7 @@ func TestFolderRename(t *testing.T) {
 	c.ExpectOK()
 
 	c.Writeln(". RENAME testfolder2/renamed testfolder/subfolder")
-	c.ExpectNO("NONEXISTENT")
+	c.ExpectNO("TRYCREATE")
 
 	c.Writeln(". RENAME testfolder/subfolder testfolder/subfolder/subfolder")
 	c.ExpectNO("CANNOT")
@@ -102,7 +104,8 @@ func TestFolderRename(t *testing.T) {
 	c.Writeln(". RENAME testfolder2 testfolder3")
 	c.ExpectOK()
 
-	c.Writeln(`. LIST "%" ""`)
+	c.Writeln(`. LIST "" "%"`)
+	c.ExpectPattern(`\* LIST (\\Inbox \\HasNoChildren) "/" INBOX`)
 	c.ExpectPattern(`\* LIST (\\HasNoChildren) "/" "testfolder"`)
 	c.ExpectPattern(`\* LIST (\\HasChildren) "/" "testfolder3"`)
 	c.ExpectPattern(`\* LIST (\\HasChildren) "/" "testfolder3/intermediate"`)

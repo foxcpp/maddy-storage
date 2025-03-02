@@ -130,8 +130,12 @@ func (s *Cond) SplitMetaBody() SplitSearchCond {
 		}
 	}
 
+	meta := *s
+	meta.InHeaderBody = nil
+	meta.InBodyOnly = nil
+	meta.Header = nil
 	return SplitSearchCond{
-		Metadata: s,
+		Metadata: &meta,
 		Body: &Cond{
 			Header:       s.Header,
 			InHeaderBody: s.InHeaderBody,

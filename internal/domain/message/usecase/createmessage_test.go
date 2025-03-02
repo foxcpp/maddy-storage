@@ -15,10 +15,8 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/blob"
 	storememory "github.com/foxcpp/maddy-storage/internal/domain/blob/store/memory"
 	changelogsqlite "github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
-	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	foldersql "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlcommon"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
-	"github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
 	searchersqlcommon "github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlcommon"
@@ -30,7 +28,7 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func initMessageTestUsecase(t *testing.T) (Usecase, blob.Store, *account.Account, *folder.Folder) {
+func initMessageTestUsecase(t *testing.T) (Usecase, blob.Store, *account.Account) {
 	ctx := contextlog.WithLogger(context.Background(), zaptest.NewLogger(t))
 
 	db, err := sqlite.NewMemory(sqlite.Cfg{})
@@ -60,12 +58,6 @@ func initMessageTestUsecase(t *testing.T) (Usecase, blob.Store, *account.Account
 
 	searcher := searchersqlcommon.New(db, searchersqlcommon.Cfg{})
 
-	folderUC := folderusecase.New(folderRepo, changelogRepo, searcher)
-	inbox, err := folderUC.Create(ctx, acct.ID, "INBOX", folder.RoleNone, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	uc := New(
 		Config{},
 		folderRepo, imapRepo, msgRepo,
@@ -74,11 +66,11 @@ func initMessageTestUsecase(t *testing.T) (Usecase, blob.Store, *account.Account
 		changelogRepo,
 	)
 
-	return uc, blobStore, acct, inbox
+	return uc, blobStore, acct
 }
 
 func TestMessage_CreateMessage(t *testing.T) {
-	uc, blobs, acct, _ := initMessageTestUsecase(t)
+	uc, blobs, acct := initMessageTestUsecase(t)
 	now := time.Now().In(time.UTC)
 
 	cases := []struct {
@@ -572,6 +564,8 @@ Hello world
 			gotMsg.ID = ulid.ULID{}
 			gotMsg.CreatedAt = time.Time{}
 			gotMsg.UpdatedAt = time.Time{}
+			gotMsg.ModSeq = 0
+			gotMsg.CreatedAtModSeq = 0
 			gotMsg.Meta = metadata.New()
 			for i := range gotMsg.Parts {
 				gotMsg.Parts[i].ID = ulid.ULID{}
@@ -601,7 +595,7 @@ Hello world
 }
 
 func TestMessage_CreateMessage_Lossless(t *testing.T) {
-	uc, _, acct, _ := initMessageTestUsecase(t)
+	uc, _, acct := initMessageTestUsecase(t)
 	now := time.Now().In(time.UTC)
 
 	cases := []struct {

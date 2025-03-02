@@ -339,7 +339,7 @@ Hello another world
 		},
 	}
 
-	uc, _, acct, _ := initMessageTestUsecase(t)
+	uc, _, acct := initMessageTestUsecase(t)
 	now := time.Now().In(time.UTC)
 
 	for _, c := range cases {
