@@ -91,6 +91,7 @@ func (uc *Usecase) Delete(
 	contextlog.FromContext(ctx).Info("messages soft-deleted",
 		zap.Stringer("folder_id", folderID),
 		zap.Stringer("account_id", accountID),
+		zap.Uint64("modseq", uint64(delModSeq)),
 		zap.Int("count", len(deletedEnts)),
 	)
 

@@ -90,6 +90,9 @@ func (s *session) Rename(mailbox, newName string) error {
 	defer task.End()
 	ctx = contextlog.WithLogger(ctx, s.log)
 
+	mailbox = strings.TrimRight(mailbox, folder.PathSeparator)
+	newName = strings.TrimRight(newName, folder.PathSeparator)
+
 	if strings.EqualFold(mailbox, "INBOX") {
 		created, err := s.b.folders.Create(ctx, s.accountID, mailbox, folder.RoleNone, true)
 		if err != nil {

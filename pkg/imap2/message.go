@@ -14,6 +14,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
@@ -292,9 +293,17 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 		}
 	}
 
-	recents, err := s.b.recents.PopRecents(ctx, info.Folder.ID, info.AcctModSeq)
-	if err != nil {
-		log.Error("failed to read recents, no flags will be set for this ession", zap.Error(err))
+	var recents recent.Set
+
+	if !s.c.IsEnabled(imap.CapIMAP4rev2) {
+		if options.ReadOnly {
+			recents, err = s.b.recents.GetRecents(ctx, info.Folder.ID, info.AcctModSeq)
+		} else {
+			recents, err = s.b.recents.PopRecents(ctx, info.Folder.ID, info.AcctModSeq)
+		}
+		if err != nil {
+			log.Error("failed to read recents, no flags will be set for this session", zap.Error(err))
+		}
 	}
 
 	s.mbox = selectedMbox{
@@ -324,6 +333,7 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 		Flags:          stringListAsFlags(info.UsedFlags),
 		PermanentFlags: stringListAsFlags(append(info.UsedFlags, `\*`)),
 		NumMessages:    info.Msgs,
+		NumRecent:      uint32(recents.Len()),
 		UIDNext:        imap.UID(info.IMAP.UIDNext),
 		UIDValidity:    info.IMAP.UIDValidity,
 		List: &imap.ListData{
@@ -373,6 +383,13 @@ func (s *session) Status(mailbox string, options *imap.StatusOptions) (*imap.Sta
 	if options.NumMessages {
 		data.NumMessages = &info.Msgs
 	}
+	if options.NumRecent {
+		recentCnt, err := s.b.recents.CountRecent(ctx, info.Folder.ID)
+		if err != nil {
+			return nil, s.asIMAPError(err)
+		}
+		data.NumRecent = &recentCnt
+	}
 	if options.NumDeleted {
 		data.NumDeleted = &info.DeletedMsgs
 	}
@@ -392,6 +409,17 @@ func (s *session) Status(mailbox string, options *imap.StatusOptions) (*imap.Sta
 func (s *session) Expunge(w *imapserver.ExpungeWriter, uids *imap.UIDSet) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Expunge")
 	defer task.End()
+
+	if s.mbox.ReadOnly {
+		// FIXME: Temporary work-around as go-imap calls Expunge in handleUnselect
+		// event for read-only mailboxes.
+		return nil
+		//return &imap.Error{
+		//	Type: imap.StatusResponseTypeNo,
+		//	Code: imap.ResponseCodeClientBug,
+		//	Text: "Cannot EXPUNGE in a read-only mailbox",
+		//}
+	}
 
 	log := s.log.WithLazy(
 		zap.String("imap_command", "EXPUNGE"),
@@ -441,14 +469,14 @@ func (s *session) criteriaAsSearcherCond(criteria *imap.SearchCriteria) (cond *s
 		for _, uids := range criteria.UID {
 			ids, err := s.mbox.idsAsRange(uids)
 			if err != nil {
-				return nil, false, fmt.Errorf("idsAsRange: %w", err)
+				return nil, false, err
 			}
 			cond.NumericIDs = append(cond.NumericIDs, ids)
 		}
 		for _, seq := range criteria.SeqNum {
 			ids, err := s.mbox.idsAsRange(seq)
 			if err != nil {
-				return nil, false, fmt.Errorf("idsAsRange: %w", err)
+				return nil, false, err
 			}
 			cond.NumericIDs = append(cond.NumericIDs, ids)
 		}
@@ -799,10 +827,18 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Store")
 	defer task.End()
 
+	if s.mbox.ReadOnly {
+		return &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: imap.ResponseCodeClientBug,
+			Text: "Cannot STORE in a read-only mailbox",
+		}
+	}
+
 	ctx = contextlog.WithLogger(ctx, s.log.WithLazy(
 		zap.String("imap_command", "STORE"),
 		zap.Stringer("imap_numset", numSet),
-		zap.Stringer("imap_selected_id", s.mbox.FolderID)))
+		zap.Stringer("folder_id", s.mbox.FolderID)))
 
 	if options.UnchangedSince != 0 && !s.mbox.CondStoreActive {
 		s.mbox.CondStoreActive = true
@@ -852,6 +888,8 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 		}
 
 		// Prevent Poll, Idle from duplicating our update
+		// TODO: Consider just always sending UID and relying on
+		// Poll to generate updates.
 		s.mbox.SkipFlagUpdateUntil[upd.UID] = upd.At
 
 		msgW := w.CreateMessage(upd.Seq)
@@ -871,10 +909,20 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 func (s *session) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Move")
 	defer task.End()
-	ctx = contextlog.WithLogger(ctx, s.log.WithLazy(
+
+	if s.mbox.ReadOnly {
+		return &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: imap.ResponseCodeClientBug,
+			Text: "Cannot MOVE in a read-only mailbox",
+		}
+	}
+
+	log := s.log.WithLazy(
 		zap.String("imap_command", "MOVE"),
 		zap.Stringer("imap_numset", numSet),
-		zap.String("imap_dest", dest)))
+	)
+	ctx = contextlog.WithLogger(ctx, log)
 
 	ids, err := s.mbox.idsAsRange(numSet)
 	if err != nil {
@@ -888,6 +936,10 @@ func (s *session) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string
 	)
 	if err != nil {
 		return s.asIMAPError(err)
+	}
+
+	if err := s.b.recents.AddRecentEntries(ctx, result.TargetEntries); err != nil {
+		log.Error("failed to add recent entries", zap.Error(err))
 	}
 
 	sourceUIDs := imap.UIDSet{}
@@ -920,7 +972,7 @@ func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) 
 	log := s.log.WithLazy(
 		zap.String("imap_command", "COPY"),
 		zap.Stringer("imap_numset", numSet),
-		zap.String("imap_dest", dest))
+	)
 	ctx = contextlog.WithLogger(ctx, log)
 
 	ids, err := s.mbox.idsAsRange(numSet)
@@ -956,10 +1008,20 @@ func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) 
 func (s *session) Append(mailbox string, r imap.LiteralReader, options *imap.AppendOptions) (*imap.AppendData, error) {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Append")
 	defer task.End()
-	ctx = contextlog.WithLogger(ctx, s.log.WithLazy(
+
+	if s.mbox.ReadOnly {
+		return nil, &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: imap.ResponseCodeClientBug,
+			Text: "Cannot APPEND in a read-only mailbox",
+		}
+	}
+
+	log := s.log.WithLazy(
 		zap.String("imap_command", "APPEND"),
 		zap.String("imap_mailbox", mailbox),
-		zap.Int64("imap_size", r.Size())))
+		zap.Int64("imap_size", r.Size()))
+	ctx = contextlog.WithLogger(ctx, log)
 
 	flags := make([]string, len(options.Flags))
 	for i, flag := range options.Flags {
@@ -972,6 +1034,15 @@ func (s *session) Append(mailbox string, r imap.LiteralReader, options *imap.App
 		r.Size(), r)
 	if err != nil {
 		return nil, s.asIMAPError(err)
+	}
+
+	if err := s.b.recents.AddRecent(
+		ctx,
+		createdData.Folder.ID,
+		imap.UID(createdData.Entry.IMAPUID),
+		createdData.Entry.CreatedAtModSeq,
+	); err != nil {
+		log.Error("failed to add recent entries", zap.Error(err))
 	}
 
 	return &imap.AppendData{
@@ -1014,8 +1085,7 @@ func (s *session) applyExpungeUpdates(ctx context.Context, w ExpungeWriter, entr
 		log.Debug("sending expunge",
 			zap.Uint32("uid", ent.IMAPUID),
 			zap.Uint32("seqnum", ent.SeqNum),
-			zap.Time("deleted_at", ent.DeletedAt),
-			zap.Time("created_at", ent.CreatedAt),
+			zap.Uint64("modseq", uint64(ent.ModSeq)),
 		)
 
 		if ent.SeqNum == 0 {
@@ -1101,8 +1171,11 @@ func (s *session) applyOtherUpdates(ctx context.Context, w *imapserver.UpdateWri
 		if newAt < ent.At {
 			newAt = ent.At
 		}
-		if s.mbox.SkipFlagUpdateUntil[ent.Updated.IMAPUID] <= ent.At {
-			delete(s.mbox.SkipFlagUpdateUntil, ent.Updated.IMAPUID)
+		if s.mbox.SkipFlagUpdateUntil[ent.Updated.IMAPUID] >=
+			ent.At {
+			log.Debug("skipped flag update",
+				zap.Stringer("msg_id", ent.Updated.MsgID),
+				zap.Uint64("modseq", uint64(ent.Updated.ModSeq)))
 			continue
 		}
 		fetchFlagsID = append(fetchFlagsID, ent.Updated.IMAPUID)
@@ -1129,6 +1202,36 @@ func (s *session) applyOtherUpdates(ctx context.Context, w *imapserver.UpdateWri
 
 	s.mbox.MaxUID = newMaxUID
 	s.mbox.At = newAt
+	s.mbox.SkipFlagUpdateUntil = map[uint32]folder.ModSeq{}
+
+	return nil
+}
+
+func (s *session) updateRecents(ctx context.Context, w *imapserver.UpdateWriter) error {
+	if s.c.IsEnabled(imap.CapIMAP4rev2) {
+		return nil
+	}
+	var (
+		newRecents recent.Set
+		err        error
+	)
+
+	log := contextlog.FromContext(ctx)
+
+	if s.mbox.ReadOnly {
+		newRecents, err = s.b.recents.GetRecents(ctx, s.mbox.FolderID, s.mbox.At)
+	} else {
+		newRecents, err = s.b.recents.PopRecents(ctx, s.mbox.FolderID, s.mbox.At)
+	}
+	if err != nil {
+		log.Error("failed to fetch new recents", zap.Error(err))
+	} else if newRecents.Len() > 0 {
+		log.Debug("added new recent entries", zap.Int("count", newRecents.Len()))
+		s.mbox.Recents.MergeWith(&newRecents)
+		if err := w.WriteNumRecent(uint32(s.mbox.Recents.Len())); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -1143,10 +1246,9 @@ func (s *session) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error {
 
 	log := contextlog.FromContext(ctx).WithLazy(
 		zap.Stringer("imap_selected_id", s.mbox.FolderID),
-		zap.Uint64("at", uint64(s.mbox.At)),
-		zap.Uint64("deletes_at", uint64(s.mbox.DeletesAt)),
 		zap.Uint32("msgs_count", s.mbox.Msgs),
 	)
+	initialAt, initialDeletesAt := s.mbox.At, s.mbox.DeletesAt
 	ctx = contextlog.WithLogger(ctx, log)
 
 	changeMask := folder.ChangeNewMessage | folder.ChangeMessageUpdated
@@ -1182,13 +1284,19 @@ func (s *session) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error {
 		return s.c.Bye("Poll failed, terminating connection to prevent corruption")
 	}
 
-	newRecents, err := s.b.recents.PopRecents(ctx, s.mbox.FolderID, s.mbox.At)
-	if err != nil {
-		log.Error("failed to fetch new recents", zap.Error(err))
-	} else if newRecents.Len() > 0 {
-		log.Debug("added new recent entries", zap.Int("count", newRecents.Len()))
-		s.mbox.Recents.MergeWith(&newRecents)
+	if err := s.updateRecents(ctx, w); err != nil {
+		log.Error("error in updateRecents", zap.Error(err))
+		return s.c.Bye("Poll failed, terminating connection to prevent corruption")
 	}
+
+	// DeletesAt may lag behind if some Poll's are without expunges
+	// but the reverse is not true - we always see updates/new messages.
+	s.mbox.At = max(s.mbox.At, s.mbox.DeletesAt)
+	log.Debug("synchronized",
+		zap.Uint64("initial_modseq", uint64(initialAt)),
+		zap.Uint64("initial_deletes_modseq", uint64(initialDeletesAt)),
+		zap.Uint64("new_modseq", uint64(s.mbox.At)),
+		zap.Uint64("new_deletes_modseq", uint64(s.mbox.DeletesAt)))
 
 	return nil
 }
@@ -1203,9 +1311,8 @@ func (s *session) Idle(w *imapserver.UpdateWriter, stop <-chan struct{}) error {
 	log := contextlog.FromContext(ctx).WithLazy(
 		zap.String("imap_command", "IDLE"),
 		zap.Stringer("imap_selected_id", s.mbox.FolderID),
-		zap.Uint64("at", uint64(s.mbox.At)),
-		zap.Uint64("deletes_at", uint64(s.mbox.DeletesAt)),
 	)
+	initialAt, initialDeletesAt := s.mbox.At, s.mbox.DeletesAt
 	ctx = contextlog.WithLogger(ctx, log)
 
 	go func() {
@@ -1243,12 +1350,18 @@ func (s *session) Idle(w *imapserver.UpdateWriter, stop <-chan struct{}) error {
 			return s.c.Bye("IDLE failed, terminating connection to prevent corruption")
 		}
 
-		newRecents, err := s.b.recents.PopRecents(ctx, s.mbox.FolderID, s.mbox.At)
-		if err != nil {
-			log.Error("failed to fetch new recents", zap.Error(err))
-		} else if newRecents.Len() > 0 {
-			log.Debug("added new recent entries", zap.Int("count", newRecents.Len()))
-			s.mbox.Recents.MergeWith(&newRecents)
+		if err := s.updateRecents(ctx, nil); err != nil {
+			log.Error("error in updateRecents", zap.Error(err))
+			return s.c.Bye("IDLE failed, terminating connection to prevent corruption")
 		}
+
+		// DeletesAt may lag behind if some Poll's are without expunges
+		// but the reverse is not true - we always see updates/new messages.
+		s.mbox.At = max(s.mbox.At, s.mbox.DeletesAt)
+		log.Debug("synchronized",
+			zap.Uint64("initial_modseq", uint64(initialAt)),
+			zap.Uint64("initial_deletes_modseq", uint64(initialDeletesAt)),
+			zap.Uint64("new_modseq", uint64(s.mbox.At)),
+			zap.Uint64("new_deletes_modseq", uint64(s.mbox.DeletesAt)))
 	}
 }

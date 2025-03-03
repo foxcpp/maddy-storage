@@ -362,16 +362,16 @@ func (r repo) RenameMove(
 		NewPath string    `gorm:"new_path"`
 	}
 
-	var oldParentID, newParentID []byte
+	var oldParentID, newParentID *ulid.ULID
 	var oldPath, newPath string
 	if oldParent != nil {
-		oldParentID = oldParent.ID[:]
+		oldParentID = &oldParent.ID
 		oldPath = oldParent.Path + folder.PathSeparator + oldName
 	} else {
 		oldPath = oldName
 	}
 	if newParent != nil {
-		newParentID = newParent.ID[:]
+		newParentID = &newParent.ID
 		newPath = newParent.Path + folder.PathSeparator + newName
 	} else {
 		newPath = newName

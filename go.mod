@@ -44,3 +44,5 @@ require (
 	modernc.org/memory v1.8.2 // indirect
 	modernc.org/sqlite v1.34.5 // indirect
 )
+
+replace github.com/emersion/go-imap/v2 => github.com/foxcpp/go-imap/v2 v2.0.0-20250303213551-bfd0402f9775

@@ -36,7 +36,9 @@ func (set *Set) Empty() bool {
 }
 
 type Tracker interface {
+	GetRecents(ctx context.Context, folderID ulid.ULID, modSeqLe folder.ModSeq) (Set, error)
 	PopRecents(ctx context.Context, folderID ulid.ULID, modSeqLe folder.ModSeq) (Set, error)
 	AddRecent(ctx context.Context, folderID ulid.ULID, uid imap.UID, modSeq folder.ModSeq) error
 	AddRecentEntries(ctx context.Context, ents []folder.Entry) error
+	CountRecent(ctx context.Context, folderID ulid.ULID) (uint32, error)
 }

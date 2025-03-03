@@ -270,9 +270,11 @@ func (f Folder) Rename(ctx context.Context, accountID ulid.ULID, oldPath, newPat
 	if oldPath == newPath {
 		return nil, nil
 	}
-	if strings.HasPrefix(newPath, oldPath) {
+	if strings.HasPrefix(newPath, oldPath+folder.PathSeparator) {
 		return nil, storeerrors.LogicError{Text: "cannot move folder into itself"}
 	}
+
+	log := contextlog.FromContext(ctx)
 
 	var oldParent *folder.Folder
 	oldName := oldPath
@@ -310,11 +312,24 @@ func (f Folder) Rename(ctx context.Context, accountID ulid.ULID, oldPath, newPat
 		}
 	}
 
-	return f.repo.RenameMove(
+	renamed, err := f.repo.RenameMove(
 		ctx, accountID,
 		oldParent, newParent,
 		oldName, newName,
 	)
+	if err != nil {
+		return nil, storeerrors.InternalError{Reason: fmt.Errorf("renamemove: %w", err)}
+	}
+
+	for _, r := range renamed {
+		log.Info("renamed folder",
+			zap.String("old_path", r.OldPath),
+			zap.String("new_path", r.NewPath),
+			zap.Stringer("folder_id", r.ID),
+		)
+	}
+
+	return renamed, nil
 }
 
 func (f Folder) Delete(ctx context.Context, accountID ulid.ULID, recursive bool, path string) ([]folder.DeletedFolder, error) {
@@ -326,7 +341,7 @@ func (f Folder) Delete(ctx context.Context, accountID ulid.ULID, recursive bool,
 		if err := f.repo.Delete(ctx, deleted.ID); err != nil {
 			return nil, err
 		}
-		contextlog.FromContext(ctx).Debug("deleted folder", zap.Stringer("id", deleted.ID), zap.String("path", deleted.Path))
+		contextlog.FromContext(ctx).Info("deleted folder", zap.Stringer("id", deleted.ID), zap.String("path", deleted.Path))
 		return []folder.DeletedFolder{
 			{
 				ID:   deleted.ID,

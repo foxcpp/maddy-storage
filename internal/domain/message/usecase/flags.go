@@ -5,7 +5,9 @@ import (
 	"fmt"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
 	"github.com/oklog/ulid/v2"
+	"go.uber.org/zap"
 )
 
 type UpdatedMessage struct {
@@ -23,6 +25,8 @@ func (uc *Usecase) AddFlags(
 	ctx context.Context, accountID, folderID ulid.ULID, numIDs folder.Range,
 	flags []string, modSeqLe folder.ModSeq, returnSeq bool,
 ) ([]UpdatedMessage, error) {
+	log := contextlog.FromContext(ctx)
+
 	modSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("next modseq: %w", err)
@@ -53,6 +57,10 @@ func (uc *Usecase) AddFlags(
 
 	updates := make([]UpdatedMessage, 0, len(updatesMap))
 	for msgID, flags := range updatesMap {
+		log.Debug("set flags",
+			zap.Stringer("msg_id", msgID),
+			zap.Uint64("modseq", uint64(modSeq)),
+			zap.Strings("flags", flags.Flags))
 		updates = append(updates, UpdatedMessage{
 			MsgID: msgID,
 			UID:   entByID[msgID].IMAPUID,
@@ -68,6 +76,8 @@ func (uc *Usecase) SetFlags(
 	ctx context.Context, accountID, folderID ulid.ULID, numIDs folder.Range,
 	flags []string, modSeqLe folder.ModSeq, returnSeq bool,
 ) ([]UpdatedMessage, error) {
+	log := contextlog.FromContext(ctx)
+
 	modSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("next modseq: %w", err)
@@ -95,6 +105,10 @@ func (uc *Usecase) SetFlags(
 
 	updates := make([]UpdatedMessage, 0, len(updatesMap))
 	for msgID, flags := range updatesMap {
+		log.Debug("set flags",
+			zap.Stringer("msg_id", msgID),
+			zap.Uint64("modseq", uint64(modSeq)),
+			zap.Strings("flags", flags.Flags))
 		updates = append(updates, UpdatedMessage{
 			MsgID: msgID,
 			UID:   entByID[msgID].IMAPUID,
@@ -110,6 +124,8 @@ func (uc *Usecase) DeleteFlags(
 	ctx context.Context, accountID, folderID ulid.ULID, numIDs folder.Range,
 	flags []string, modSeqLe folder.ModSeq, returnSeq bool,
 ) ([]UpdatedMessage, error) {
+	log := contextlog.FromContext(ctx)
+
 	modSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("next modseq: %w", err)
@@ -137,6 +153,10 @@ func (uc *Usecase) DeleteFlags(
 
 	updates := make([]UpdatedMessage, 0, len(updatesMap))
 	for msgID, flags := range updatesMap {
+		log.Debug("removed flags",
+			zap.Stringer("msg_id", msgID),
+			zap.Uint64("modseq", uint64(modSeq)),
+			zap.Strings("flags", flags.Flags))
 		updates = append(updates, UpdatedMessage{
 			MsgID: msgID,
 			UID:   entByID[msgID].IMAPUID,

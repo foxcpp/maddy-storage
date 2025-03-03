@@ -4,14 +4,12 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
-github.com/emersion/go-imap/v2 v2.0.0-beta.4 h1:BS7+kUVhe/jfuFWgn8li0AbCKBIDoNvqJWsRJppltcc=
-github.com/emersion/go-imap/v2 v2.0.0-beta.4/go.mod h1:BZTFHsS1hmgBkFlHqbxGLXk2hnRqTItUgwjSSCsYNAk=
 github.com/emersion/go-message v0.18.2 h1:rl55SQdjd9oJcIoQNhubD2Acs1E6IzlZISRTK7x/Lpg=
 github.com/emersion/go-message v0.18.2/go.mod h1:XpJyL70LwRvq2a8rVbHXikPgKj8+aI0kGdHlg16ibYA=
 github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 h1:oP4q0fw+fOSWn3DfFi4EXdT+B+gTtzx8GC9xsc26Znk=
 github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6/go.mod h1:iL2twTeMvZnrg54ZoPDNfJaJaqy0xIQFuBdrLsmspwQ=
-github.com/foxcpp/go-imap-mess/v2 v2.0.1-0.20240818161107-536d0dd43dba h1:oLcuWeEncXaHFAy1AbHkUVG2D3Ba18G7XpWyhk0CS8s=
-github.com/foxcpp/go-imap-mess/v2 v2.0.1-0.20240818161107-536d0dd43dba/go.mod h1:c1fFQv6xt7/I8zS0xH4C1Q1ACleKz8+rzjF+Bvb8nDQ=
+github.com/foxcpp/go-imap/v2 v2.0.0-20250303213551-bfd0402f9775 h1:U7APly8XtR81ctEj86aHMkdvMz22h2rHpmI+Mw61EtM=
+github.com/foxcpp/go-imap/v2 v2.0.0-20250303213551-bfd0402f9775/go.mod h1:BZTFHsS1hmgBkFlHqbxGLXk2hnRqTItUgwjSSCsYNAk=
 github.com/glebarez/go-sqlite v1.22.0 h1:uAcMJhaA6r3LHMTFgP0SifzgXg46yJkgxqyuyec+ruQ=
 github.com/glebarez/go-sqlite v1.22.0/go.mod h1:PlBIdHe0+aUEFn+r2/uthrWq4FxbzugL0L8Li6yQJbc=
 github.com/glebarez/sqlite v1.11.0 h1:wSG0irqzP6VurnMEpFGer5Li19RpIRi2qvQz++w0GMw=

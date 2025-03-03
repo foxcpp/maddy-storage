@@ -323,7 +323,6 @@ func (r repo) ReplaceFlags(ctx context.Context, ids []ulid.ULID, flags []string,
 
 		err = tx.
 			Where("message_flags.message_id IN (?)", lockedIds).
-			Where("message_flags.flag IN (?)", flags).
 			Delete(&msgFlagDTO{}).Error
 		if err != nil {
 			return storeerrors.InternalError{Reason: fmt.Errorf("delete flags: %v", err)}
