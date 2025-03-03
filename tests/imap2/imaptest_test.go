@@ -36,6 +36,12 @@ func TestImaptestScripted(t *testing.T) {
 		t.Skip("No imaptest scripted tests dir specified")
 	}
 
+	var err error
+	*imaptestDir, err = filepath.Abs(*imaptestDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	scriptedFiles, err := os.ReadDir(*imaptestDir)
 	if err != nil {
 		t.Fatal(err)
@@ -80,10 +86,10 @@ func TestImaptestScripted(t *testing.T) {
 			if err := os.Mkdir(filepath.Join(dir, "test"), 0777); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Link(test.TestFile, filepath.Join(dir, "test", test.Name)); err != nil {
+			if err := os.Symlink(test.TestFile, filepath.Join(dir, "test", test.Name)); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Link(test.MboxFile, filepath.Join(dir, "test", test.Name+".mbox")); err != nil {
+			if err := os.Symlink(test.MboxFile, filepath.Join(dir, "test", test.Name+".mbox")); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.Chdir(dir); err != nil {

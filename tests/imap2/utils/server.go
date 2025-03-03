@@ -38,6 +38,7 @@ import (
 var (
 	flagDBImpl     = flag.String("test.db", "sqlite", "Database/repository implementation to use")
 	flagSqliteFile = flag.Bool("test.sqlite-file", false, "When SQLite is used, use file instead of in-memory DB")
+	flagIMAPLog    = flag.Bool("test.imap-log", false, "Write IMAP commands to test log")
 )
 
 type testAuth struct {
@@ -248,6 +249,7 @@ func TestServer(t *testing.T) *Server {
 	s.Backend = imap2.New(
 		imap2.Config{
 			InsecureAuth: true,
+			IODump:       *flagIMAPLog,
 		}, logger, s.Accounts, s.Folders, s.Message,
 		recents, watcher,
 	)

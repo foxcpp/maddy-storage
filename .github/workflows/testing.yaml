@@ -43,8 +43,6 @@ jobs:
         run: |
           wget -O /usr/local/bin/imaptest 'https://github.com/dovecot/imaptest/releases/download/latest/imaptest-x86_64-ubuntu-24.04'
           chmod +x /usr/local/bin/imaptest
-          wget -O imaptest-latest.zip 'https://github.com/dovecot/imaptest/archive/refs/tags/latest.zip'
-          unzip imaptest-latest.zip
       - name: imaptest
         run: |
           go test -tags imaptest ./tests/imap2 \
@@ -52,4 +50,4 @@ jobs:
             -test.imaptest /usr/local/bin/imaptest \
             -test.imaptest-rawlog \
             -test.imaptest-dir \
-            $PWD/imaptest-latest/src/tests
+            $PWD/tests/imap2/imaptest/tests
