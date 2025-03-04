@@ -135,21 +135,6 @@ func sectionAsPath(m *message.Msg, sect *imap.FetchItemBodySection) (message.Pat
 	return path, opts
 }
 
-func binarySectionAsPath(m *message.Msg, sect *imap.FetchItemBinarySection) (message.Path, messageusecase.WriteOptions) {
-	var (
-		opts = messageusecase.WriteOptions{}
-		path message.Path
-	)
-	path, opts.Specifier = partPathFromIMAP(m, sect.Part, imap.PartSpecifierNone)
-
-	if partial := sect.Partial; partial != nil {
-		opts.Offset = partial.Offset
-		opts.Size = partial.Size
-	}
-
-	return path, opts
-}
-
 func multiPartToIMAPBodyStruct(partPath message.Path, content *message.ContentPartData, remainingParts []message.Part, extended bool) *imap.BodyStructureMultiPart {
 	bodyStruct := &imap.BodyStructureMultiPart{}
 

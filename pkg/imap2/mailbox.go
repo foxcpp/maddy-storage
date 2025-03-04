@@ -10,7 +10,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	"github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
+	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 )

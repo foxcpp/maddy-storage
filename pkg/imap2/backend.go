@@ -7,10 +7,10 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
-	"github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
+	accountusecase "github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
-	"github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
+	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
 	"github.com/oklog/ulid/v2"

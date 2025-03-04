@@ -321,8 +321,8 @@ func (r repo) Update(ctx context.Context, f *folder.Folder) error {
 		Model(dto).
 		Where("folders.id = ? AND folders.updated_at = ?", dto.ID, f.InitialUpdatedAt).
 		Updates(map[string]interface{}{
-			"subscribed":  dto.Subscribed,
-			"special_use": dto.Role,
+			"subscribed": dto.Subscribed,
+			"role":       dto.Role,
 		})
 	if err := q.Error; err != nil {
 		return err

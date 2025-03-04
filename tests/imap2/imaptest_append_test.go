@@ -103,7 +103,7 @@ func TestImaptestAppendFetch(t *testing.T) {
 		}).Collect()
 		require.NoError(t, err)
 		require.Equal(t, []*imapclient.FetchMessageBuffer{
-			{SeqNum: 1, UID: imap.UID(1), Flags: []imap.Flag{imap.FlagFlagged, imap.FlagSeen}},
+			{SeqNum: 1, UID: imap.UID(1), Flags: []imap.Flag{imap.FlagFlagged, imap.FlagSeen, `\Recent`}},
 		}, fetch1)
 
 		fetch2, err := cl2.Fetch(imap.SeqSetNum(1), &imap.FetchOptions{
@@ -159,7 +159,7 @@ func TestImaptestAppendFetch(t *testing.T) {
 		}).Collect()
 		require.NoError(t, err)
 		require.Equal(t, []*imapclient.FetchMessageBuffer{
-			{SeqNum: 2, UID: imap.UID(2), Flags: nil},
+			{SeqNum: 2, UID: imap.UID(2), Flags: []imap.Flag{`\Recent`}},
 		}, fetch2)
 	})
 
@@ -209,7 +209,7 @@ func TestImaptestAppendFetch(t *testing.T) {
 		}).Collect()
 		require.NoError(t, err)
 		require.Equal(t, []*imapclient.FetchMessageBuffer{
-			{SeqNum: 3, UID: imap.UID(3), Flags: nil},
+			{SeqNum: 3, UID: imap.UID(3), Flags: []imap.Flag{`\Recent`}},
 		}, fetch2)
 	})
 }
