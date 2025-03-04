@@ -8,7 +8,7 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
-	"github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
+	accountusecase "github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	"github.com/oklog/ulid/v2"

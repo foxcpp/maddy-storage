@@ -17,7 +17,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
-	"github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
+	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
