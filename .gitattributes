@@ -1,2 +1,2 @@
-/tests/imap2/imaptest/tests/* text eol=crlf
-/tests/imap2/imaptest/broken-tests/* text eol=crlf
+/tests/imap2/imaptest/tests/* text eol=lf
+/tests/imap2/imaptest/broken-tests/* text eol=lf
