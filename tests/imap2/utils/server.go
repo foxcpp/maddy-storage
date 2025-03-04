@@ -14,7 +14,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/account"
 	accountsqlite "github.com/foxcpp/maddy-storage/internal/domain/account/repository/sqlite"
-	"github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
+	accountusecase "github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	storememory "github.com/foxcpp/maddy-storage/internal/domain/blob/store/memory"
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
 	changelogsqlite "github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
