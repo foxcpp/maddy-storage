@@ -1,9 +1,7 @@
 package imap2
 
 import (
-	"context"
 	"crypto/tls"
-	"runtime/trace"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
@@ -12,8 +10,6 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
-	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -56,33 +52,6 @@ func New(
 		recents:  recents,
 		watcher:  watcher,
 	}
-}
-
-func (b *Backend) newSession(c *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
-	sid := ulid.Make()
-
-	log := b.log.With(
-		zap.Stringer("session_id", sid))
-	log.Info("session open",
-		zap.Stringer("local_addr", c.NetConn().LocalAddr()),
-		zap.Stringer("remote_addr", c.NetConn().RemoteAddr()))
-
-	ctx, sessionCancel := context.WithCancelCause(context.Background())
-	ctx = contextlog.WithLogger(ctx, log)
-	ctx, task := trace.NewTask(ctx, "maddy-storage/imap2.Session")
-	trace.Log(ctx, "session_id", sid.String())
-
-	return &session{
-			b:             b,
-			c:             c,
-			sid:           sid,
-			log:           log,
-			ctx:           ctx,
-			sessionCancel: sessionCancel,
-			sessionTask:   task,
-		}, &imapserver.GreetingData{
-			PreAuth: false,
-		}, nil
 }
 
 func (b *Backend) Options() *imapserver.Options {

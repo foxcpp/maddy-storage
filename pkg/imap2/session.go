@@ -11,6 +11,7 @@ import (
 	accountusecase "github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 )
@@ -100,6 +101,33 @@ func (m *selectedMbox) idsAsRange(set imap.NumSet) (folder.Range, error) {
 	return res, nil
 }
 
+func (b *Backend) newSession(c *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
+	sid := ulid.Make()
+
+	log := b.log.With(
+		zap.Stringer("session_id", sid))
+	log.Info("session open",
+		zap.Stringer("local_addr", c.NetConn().LocalAddr()),
+		zap.Stringer("remote_addr", c.NetConn().RemoteAddr()))
+
+	ctx, sessionCancel := context.WithCancelCause(context.Background())
+	ctx = contextlog.WithLogger(ctx, log)
+	ctx, task := trace.NewTask(ctx, "maddy-storage/imap2.Session")
+	trace.Log(ctx, "session_id", sid.String())
+
+	return &session{
+			b:             b,
+			c:             c,
+			sid:           sid,
+			log:           log,
+			ctx:           ctx,
+			sessionCancel: sessionCancel,
+			sessionTask:   task,
+		}, &imapserver.GreetingData{
+			PreAuth: false,
+		}, nil
+}
+
 type session struct {
 	b   *Backend
 	c   *imapserver.Conn
@@ -143,18 +171,6 @@ func (s *session) Namespace() (*imap.NamespaceData, error) {
 	}, nil
 }
 
-func (s *session) Close() error {
-	s.sessionTask.End()
-	s.sessionCancel(fmt.Errorf("connection closed"))
-	s.log.Info("session close")
-	if s.mbox.isOpen() {
-		if err := s.unselect(s.ctx); err != nil {
-			s.log.Error("unselect failed", zap.Error(err))
-		}
-	}
-	return nil
-}
-
 func (s *session) Login(username, password string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Login")
 	defer task.End()
@@ -174,5 +190,17 @@ func (s *session) Login(username, password string) error {
 	}
 	s.log.Info("authenticated", zap.String("sasl_username", username), zap.Stringer("account_id", authzULID))
 	s.accountID = authzULID
+	return nil
+}
+
+func (s *session) Close() error {
+	s.sessionTask.End()
+	s.sessionCancel(fmt.Errorf("connection closed"))
+	s.log.Info("session close")
+	if s.mbox.isOpen() {
+		if err := s.unselect(s.ctx); err != nil {
+			s.log.Error("unselect failed", zap.Error(err))
+		}
+	}
 	return nil
 }
