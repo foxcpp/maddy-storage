@@ -105,8 +105,9 @@ type session struct {
 	c   *imapserver.Conn
 	sid ulid.ULID
 
-	accountID ulid.ULID
-	mbox      selectedMbox
+	accountID   ulid.ULID
+	mbox        selectedMbox
+	enabledCaps imap.CapSet // populated after first select
 
 	log           *zap.Logger
 	ctx           context.Context

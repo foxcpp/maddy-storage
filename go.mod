@@ -3,7 +3,7 @@ module github.com/foxcpp/maddy-storage
 go 1.23
 
 require (
-	github.com/emersion/go-imap/v2 v2.0.0-beta.4
+	github.com/emersion/go-imap/v2 v2.0.0-beta.5.0.20250309105422-854c60bc0316
 	github.com/emersion/go-message v0.18.2
 	github.com/glebarez/go-sqlite v1.22.0
 	github.com/glebarez/sqlite v1.11.0
@@ -44,5 +44,3 @@ require (
 	modernc.org/memory v1.8.2 // indirect
 	modernc.org/sqlite v1.34.5 // indirect
 )
-
-replace github.com/emersion/go-imap/v2 => github.com/foxcpp/go-imap/v2 v2.0.0-20250303213551-bfd0402f9775

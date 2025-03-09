@@ -250,6 +250,8 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 		zap.Any("imap_opts", options))
 	ctx = contextlog.WithLogger(ctx, log)
 
+	s.enabledCaps = s.c.EnabledCaps()
+
 	if s.mbox.isOpen() {
 		if err := s.unselect(ctx); err != nil {
 			log.Error("unselect failed", zap.Error(err))
@@ -279,8 +281,7 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 	}
 
 	var recents recent.Set
-
-	if !s.c.IsEnabled(imap.CapIMAP4rev2) {
+	if !s.enabledCaps.Has(imap.CapIMAP4rev2) {
 		if options.ReadOnly {
 			recents, err = s.b.recents.GetRecents(ctx, info.Folder.ID, info.AcctModSeq)
 		} else {
@@ -1193,7 +1194,7 @@ func (s *session) applyOtherUpdates(ctx context.Context, w *imapserver.UpdateWri
 }
 
 func (s *session) updateRecents(ctx context.Context, w *imapserver.UpdateWriter) error {
-	if s.c.IsEnabled(imap.CapIMAP4rev2) {
+	if s.enabledCaps.Has(imap.CapIMAP4rev2) {
 		return nil
 	}
 	var (
