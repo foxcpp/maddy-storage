@@ -121,31 +121,48 @@ func (uc *Usecase) PartSize(
 	}
 
 	size := uint32(0)
-	if rootPart.Content.IsMIMEPart && opts.Specifier.Includes(PartMIME) {
+
+	if rootPart.Content.IsMIMEPart {
+		// MIME header + something.
+		if opts.Specifier.Includes(PartMIME) {
+			size += rootPart.Content.HeaderSize
+		}
+
+		// MIME header + RFC822 header + body (if not rfc822 itself or multipart).
+		if rootPart.HasNestedMessage() {
+			// Content is inner header + may be body if leaf part
+			// so need to consult Nested for exact sizes.
+			// (nested only present in this case).
+			if opts.Specifier.Includes(PartHeader) {
+				size += rootPart.Content.Nested.HeaderSize
+			}
+		}
+	} else if opts.Specifier.Includes(PartHeader) {
 		size += rootPart.Content.HeaderSize
 	}
 
-	if (!rootPart.Content.IsMIMEPart || rootPart.IsNestedMessage()) && opts.Specifier.Includes(PartHeader) {
-		if !rootPart.Content.IsMIMEPart {
-			size += rootPart.Content.HeaderSize
-		} else if rootPart.IsNestedMessage() {
-			size += rootPart.Content.Nested.HeaderSize
+	if opts.Specifier.Includes(PartBody) {
+		size += rootPart.Content.MultipartSize
+
+		// For nested messages, Content.ContentSize includes the size of the
+		// nested header that we already included above.
+		if rootPart.HasNestedMessage() {
+			if rootPart.Content.IsMIMEPart {
+				nested := rootPart.Content.Nested
+				if !nested.HasNestedMessage() && !nested.IsMultipart() {
+					if opts.Specifier.Includes(PartBody) {
+						size += nested.ContentSize
+					}
+				}
+			}
+		} else {
+			size += rootPart.Content.ContentSize
 		}
-	}
 
-	if !opts.Specifier.Includes(PartBody) {
-		return size, nil
-	}
-
-	size += rootPart.Content.MultipartSize
-	// For nested messages, Content.Size includes the size of the
-	// nested header that we already included above.
-	if !rootPart.IsNestedMessage() {
-		size += rootPart.Content.Size
-	}
-	for _, p := range msg.Parts {
-		if p.Path.IsDescendantOf(rootPart.Path) {
-			size += p.TotalSize()
+		for _, p := range msg.Parts {
+			if p.Path.IsDescendantOf(rootPart.Path) {
+				size += p.TotalSize()
+			}
 		}
 	}
 
@@ -251,7 +268,7 @@ func (uc *Usecase) writePartTree(
 
 	if part.Content.IsMIMEPart {
 		if opts.Specifier.Includes(PartMIME) {
-			if opts.EncodeBinary && part.Content.Encoding == "binary" && part.Content.IsMIMEPart && !part.IsNestedMessage() {
+			if opts.EncodeBinary && part.Content.Encoding == "binary" && part.Content.IsMIMEPart && !part.HasNestedMessage() {
 				hdr, err := textproto.ReadHeader(buffered)
 				if err != nil {
 					return fmt.Errorf("read header: %w", err)
@@ -273,7 +290,7 @@ func (uc *Usecase) writePartTree(
 		}
 	}
 
-	if !part.Content.IsMIMEPart || part.IsNestedMessage() {
+	if !part.Content.IsMIMEPart || part.HasNestedMessage() {
 		if opts.Specifier.Includes(PartHeader) {
 			if opts.EncodeBinary && part.Content.Encoding == "binary" {
 				hdr, err := textproto.ReadHeader(buffered)
@@ -339,23 +356,27 @@ func (uc *Usecase) writePartBody(ctx context.Context, msg *message.Msg, part *me
 		}
 	}
 
-	isMultipart := part.IsMultipart()
-	isNestedMsg := part.IsNestedMessage()
-
-	if !isMultipart && !isNestedMsg {
-		return nil
-	}
-
-	if isMultipart || (part.Content.Nested != nil && part.Content.Nested.IsMultipart()) {
+	// Multipart inside RFC822 or other container.
+	if part.IsMultipart() || (part.Content.Nested != nil && part.Content.Nested.IsMultipart()) {
 		return uc.writeMultipartBody(ctx, msg, part, to, opts)
 	}
 
-	return uc.writeNestedRFC822Body(ctx, msg, part, to, opts)
+	if part.HasNestedMessage() {
+		if part.IsMIMEPart() {
+			if part.Content.Nested.IsMultipart() {
+				return uc.writeMultipartBody(ctx, msg, part, to, opts)
+			} else if part.Content.Nested.HasNestedMessage() {
+				return uc.writeNestedRFC822Body(ctx, msg, part, to, opts)
+			}
+		} else {
+			return uc.writeNestedRFC822Body(ctx, msg, part, to, opts)
+		}
+	}
+
+	return nil
 }
 
 func (uc *Usecase) writeNestedRFC822Body(ctx context.Context, msg *message.Msg, part *message.Part, to io.Writer, opts WriteOptions) error {
-	// Nested RFC822 will be represented as a single child part.
-
 	var nestedPart *message.Part
 	for _, p := range msg.Parts {
 		if p.Path.IsChildOf(part.Path) {

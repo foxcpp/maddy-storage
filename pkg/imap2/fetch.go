@@ -20,7 +20,7 @@ import (
 )
 
 func contentEnvelopeToIMAP(env *message.ContentEnvelope) *imap.Envelope {
-	addrSlice := func(addrs []*message.Address) []imap.Address {
+	addrSlice := func(addrs []*message.Address, emptyAsNil bool) []imap.Address {
 		res := make([]imap.Address, 0, len(addrs))
 		for _, a := range addrs {
 			atSignIndx := strings.LastIndexByte(a.Address, '@')
@@ -37,18 +37,22 @@ func contentEnvelopeToIMAP(env *message.ContentEnvelope) *imap.Envelope {
 				Host:    host,
 			})
 		}
+
+		if emptyAsNil && len(res) == 0 {
+			return nil
+		}
 		return res
 	}
 
 	return &imap.Envelope{
 		Date:      env.Date,
 		Subject:   env.Subject,
-		From:      addrSlice(env.From),
-		Sender:    addrSlice(env.Sender),
-		ReplyTo:   addrSlice(env.ReplyTo),
-		To:        addrSlice(env.To),
-		Cc:        addrSlice(env.Cc),
-		Bcc:       addrSlice(env.Bcc),
+		From:      addrSlice(env.From, true),
+		Sender:    addrSlice(env.Sender, false),
+		ReplyTo:   addrSlice(env.ReplyTo, false),
+		To:        addrSlice(env.To, true),
+		Cc:        addrSlice(env.Cc, true),
+		Bcc:       addrSlice(env.Bcc, true),
 		InReplyTo: env.InReplyTo,
 		MessageID: env.MessageID,
 	}
@@ -81,7 +85,7 @@ func partPathFromIMAP(m *message.Msg, imapPath []int, spec imap.PartSpecifier) (
 	var specifier messageusecase.PartSpecifier
 	switch spec {
 	case imap.PartSpecifierNone:
-		if part.Path.Empty() || part.IsNestedMessage() {
+		if part.Path.Empty() || part.IsMessage() || part.HasNestedMessage() {
 			specifier = messageusecase.PartHeader | messageusecase.PartBody
 		} else {
 			specifier = messageusecase.PartBody
@@ -162,18 +166,19 @@ func partToIMAPBodyStruct(partPath message.Path, content *message.ContentPartDat
 	}
 	bodyStruct.Type = contentType
 	bodyStruct.Subtype = contentSubtype
+	bodyStruct.Params = content.Params
 	bodyStruct.ID = content.ID
 	bodyStruct.Description = content.Description
 	bodyStruct.Encoding = content.Encoding
-	bodyStruct.Size = content.Size
+	bodyStruct.Size = content.ContentSize
 
 	if content.IsText() {
 		text := &imap.BodyStructureText{}
-		text.NumLines = content.NumLines
+		text.NumLines = content.ContentLines
 		bodyStruct.Text = text
 	}
 
-	if content.IsNestedMessage() {
+	if content.HasNestedMessage() {
 		rfc822 := &imap.BodyStructureMessageRFC822{}
 		// If it is a MIME part then content.Nested is populated with necessary info,
 		// otherwise there is a single child part immediately after that one
@@ -267,6 +272,13 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 		s.mbox.CondStoreActive = true
 	}
 
+	setSeen := false
+	for _, bodySect := range options.BodySection {
+		if !bodySect.Peek {
+			setSeen = true
+		}
+	}
+
 	ids, err := s.mbox.idsAsRange(numSet)
 	if err != nil {
 		return s.asIMAPError(err)
@@ -282,11 +294,27 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 		return s.asIMAPError(fmt.Errorf("fetch %v: %w", ids, err))
 	}
 
+	uidList := make([]uint32, 0, len(msgs))
 	for _, msg := range msgs {
 		err := s.writeMessage(ctx, w, msg, options)
 		if err != nil {
 			return s.asIMAPError(err)
 		}
+		uidList = append(uidList, msg.Entry.IMAPUID)
+	}
+
+	if s.mbox.ReadOnly || !setSeen {
+		return nil
+	}
+
+	// TODO: Consider using MsgIDs directly.
+	_, err = s.b.messages.AddFlags(ctx, s.accountID, s.mbox.FolderID, folder.Range{
+		Values:    uidList,
+		At:        s.mbox.At,
+		DeletesAt: s.mbox.DeletesAt,
+	}, []string{string(imap.FlagSeen)}, folder.ModSeq(0), true)
+	if err != nil {
+		return s.asIMAPError(err)
 	}
 
 	return nil

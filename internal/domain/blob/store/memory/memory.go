@@ -41,3 +41,11 @@ func (s Store) Delete(_ context.Context, path string) error {
 	delete(s.Blobs, path)
 	return nil
 }
+
+func (s Store) Len() int { return len(s.Blobs) }
+
+func (s Store) Clear() {
+	for k := range s.Blobs {
+		delete(s.Blobs, k)
+	}
+}

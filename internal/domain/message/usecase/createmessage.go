@@ -9,6 +9,7 @@ import (
 	"io"
 	"runtime/trace"
 	"strconv"
+	"strings"
 	"time"
 
 	gomessage "github.com/emersion/go-message"
@@ -210,9 +211,12 @@ type storedBlob struct {
 	Inline     []byte
 	ExternalID string
 	Size       int
+
+	Lines    int
+	LastByte byte // populated only if countLines=true (Lines!=0)
 }
 
-func (uc *Usecase) storePartBlob(ctx context.Context, accountID, msgID, partID ulid.ULID, from io.Reader) (storedBlob, error) {
+func (uc *Usecase) storePartBlob(ctx context.Context, accountID, msgID, partID ulid.ULID, from io.Reader, countLines bool) (storedBlob, error) {
 	log := contextlog.FromContext(ctx)
 
 	// First try to read up to N bytes.
@@ -221,7 +225,18 @@ func (uc *Usecase) storePartBlob(ctx context.Context, accountID, msgID, partID u
 	if err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) {
 			log.Debug("keeping the part in RAM (got EOF)", zap.Int("actual_size", actualSize))
-			return storedBlob{Inline: initial[:actualSize], Size: actualSize}, nil
+
+			lines := 0
+			if countLines {
+				lines = bytes.Count(initial[:actualSize], []byte("\r\n"))
+			}
+
+			return storedBlob{
+				Inline:   initial[:actualSize],
+				Size:     actualSize,
+				Lines:    lines,
+				LastByte: initial[actualSize-1],
+			}, nil
 		}
 		if err == io.EOF {
 			// Special case: message with empty body.
@@ -232,24 +247,29 @@ func (uc *Usecase) storePartBlob(ctx context.Context, accountID, msgID, partID u
 	}
 	if actualSize < uc.cfg.InlineMaxPartSize {
 		log.Debug("keeping the part in RAM (got short read)", zap.Int("actual_size", actualSize))
-		return storedBlob{Inline: initial[:actualSize], Size: actualSize}, nil
+
+		lines := 0
+		if countLines {
+			lines = bytes.Count(initial[:actualSize], []byte("\r\n"))
+		}
+
+		return storedBlob{
+			Inline:   initial[:actualSize],
+			Size:     actualSize,
+			Lines:    lines,
+			LastByte: initial[actualSize-1],
+		}, nil
 	}
 
-	size, externalID, err := uc.storeExternalPart(ctx, accountID, msgID, partID, io.MultiReader(bytes.NewReader(initial[:actualSize]), from))
-	if err != nil {
-		return storedBlob{}, storeerrors.InternalError{
-			Reason: fmt.Errorf("external store: %w", err),
-		}
-	}
-	return storedBlob{ExternalID: externalID, Size: int(size)}, nil
+	return uc.storeExternalBlob(ctx, accountID, msgID, partID, io.MultiReader(bytes.NewReader(initial[:actualSize]), from), countLines)
 }
 
-func (uc *Usecase) storeExternalPart(ctx context.Context, accountID, msgID, partID ulid.ULID, from io.Reader) (size int64, externalID string, err error) {
+func (uc *Usecase) storeExternalBlob(ctx context.Context, accountID, msgID, partID ulid.ULID, from io.Reader, countLines bool) (storedBlob, error) {
 	log := contextlog.FromContext(ctx)
 
 	externalID, wc, err := uc.createPartExternalBlob(ctx, accountID, msgID, partID)
 	if err != nil {
-		return 0, "", storeerrors.InternalError{
+		return storedBlob{}, storeerrors.InternalError{
 			Reason: fmt.Errorf("create part %v in external store: %w", partID, err),
 		}
 	}
@@ -267,14 +287,27 @@ func (uc *Usecase) storeExternalPart(ctx context.Context, accountID, msgID, part
 		}
 	}(wc)
 
-	size, err = io.Copy(wc, from)
+	writer := io.Writer(wc)
+	var lineCounter *countingWriter
+	if countLines {
+		lineCounter = &countingWriter{}
+		writer = io.MultiWriter(lineCounter, wc)
+	}
+
+	size, err := io.Copy(writer, from)
 	if err != nil {
-		return 0, "", storeerrors.InternalError{
+		return storedBlob{}, storeerrors.InternalError{
 			Reason: fmt.Errorf("copy part %v (id=%v): %w", partID, externalID, err),
 		}
 	}
 
-	return size, externalID, nil
+	blob := storedBlob{ExternalID: externalID, Size: int(size)}
+	if lineCounter != nil {
+		blob.Lines = lineCounter.Lines
+		blob.LastByte = lineCounter.LastByte
+	}
+
+	return blob, nil
 }
 
 func (uc *Usecase) storeRawMessage(ctx context.Context, accountID ulid.ULID, modSeq folder.ModSeq, msgID ulid.ULID, date time.Time, flags []string, tempBuf buffer) (msg *message.Msg, err error) {
@@ -297,21 +330,21 @@ func (uc *Usecase) storeRawMessage(ctx context.Context, accountID ulid.ULID, mod
 		}
 		defer rc.Close()
 
-		size, path, err := uc.storeExternalPart(ctx, accountID, msgID, msgID, rc)
+		blob, err := uc.storeExternalBlob(ctx, accountID, msgID, msgID, rc, false)
 		if err != nil {
 			return nil, storeerrors.InternalError{Reason: fmt.Errorf("store external part: %v", err)}
 		}
 		defer func() {
 			if err != nil {
-				derr := uc.blobStore.Delete(ctx, path)
+				derr := uc.blobStore.Delete(ctx, blob.ExternalID)
 				if derr != nil {
-					log.Error("failed to delete blob store buffer", zap.Error(derr), zap.String("key", path))
+					log.Error("failed to delete blob store buffer", zap.Error(derr), zap.String("key", blob.ExternalID))
 				}
 			}
 		}()
 
-		blobID = path
-		blobSize = uint32(size)
+		blobID = blob.ExternalID
+		blobSize = uint32(blob.Size)
 	}
 
 	msg, err = message.New(&message.NewMsg{
@@ -325,7 +358,7 @@ func (uc *Usecase) storeRawMessage(ctx context.Context, accountID ulid.ULID, mod
 				ID:   msgID,
 				Path: message.Path{1},
 				Content: &message.ContentPartData{
-					Size: blobSize,
+					ContentSize: blobSize,
 				},
 				InlineBlob: inline,
 				ExternalID: blobID,
@@ -355,7 +388,7 @@ func (uc *Usecase) storeMessage(ctx context.Context, accountID ulid.ULID, modSeq
 	log.Debug("read root message header", zap.Int("fields_count", header.Len()))
 
 	parts, err := uc.storePartsTree(ctx, accountID, msgID, message.EmptyPath(),
-		header, reader, 0, false)
+		header, reader, 0, false, false)
 	if err != nil {
 		return nil, fmt.Errorf("store parts tree: %w", err)
 	}
@@ -408,7 +441,7 @@ func (uc *Usecase) storePartsTree(
 	ctx context.Context,
 	accountID, msgID ulid.ULID,
 	path message.Path, header textproto.Header, reader *bufio.Reader,
-	orderOffset int, isMIMEPart bool,
+	orderOffset int, isMIMEPart, isInDigest bool,
 ) (parts []message.NewPart, err error) {
 	if len(path) > uc.cfg.MaxPartNesting {
 		return nil, ErrTooManyNestedParts
@@ -416,8 +449,8 @@ func (uc *Usecase) storePartsTree(
 
 	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.storePartsTree").End()
 
-	if mimeutils.HasNestedRFC822(header) {
-		return uc.storeNestedRFC822(ctx, accountID, msgID, path, header, reader, orderOffset, isMIMEPart)
+	if isInDigest || mimeutils.HasNestedRFC822(header) {
+		return uc.storeRFC822(ctx, accountID, msgID, path, header, reader, orderOffset, isMIMEPart, isInDigest)
 	}
 
 	if mimeutils.IsMultipart(header) {
@@ -441,7 +474,7 @@ func (uc *Usecase) storeLeafPart(
 	partData := &message.ContentPartData{
 		IsMIMEPart: isMIMEpart,
 	}
-	uc.fillPartDataFromHeader(ctx, header, partData)
+	uc.fillPartDataFromHeader(ctx, header, partData, false)
 	if !isMIMEpart {
 		uc.fillEnvelopeFromHeader(ctx, header, partData)
 	}
@@ -453,16 +486,14 @@ func (uc *Usecase) storeLeafPart(
 		}
 	}
 	partData.HeaderSize = uint32(headerBlob.Len())
-	partData.HeaderNumLines = int64(bytes.Count(headerBlob.Bytes(), []byte("\n")))
+	partData.HeaderLines = int64(bytes.Count(headerBlob.Bytes(), []byte("\n")))
 	log.Debug("serialized leaf (mime/rfc822) header",
 		zap.Int("header_size", headerBlob.Len()),
 		zap.Int("fields_count", header.Len()))
 
-	lineCounter := &countingReader{R: reader}
-	reader = bufio.NewReader(lineCounter)
-
 	blob, err := uc.storePartBlob(ctx, accountID, msgID, partID,
-		io.MultiReader(bytes.NewReader(headerBlob.Bytes()), reader))
+		io.MultiReader(bytes.NewReader(headerBlob.Bytes()), reader),
+		true)
 	if err != nil {
 		return nil, fmt.Errorf("store leaf part %v blob: %w", path, err)
 	}
@@ -477,11 +508,11 @@ func (uc *Usecase) storeLeafPart(
 		}
 	}()
 
-	if lineCounter.Lines == 0 && lineCounter.Size > 0 {
-		lineCounter.Lines = 1
+	if blob.Lines == 0 && blob.Size > 0 {
+		blob.Lines = 1
 	}
-	partData.NumLines = int64(lineCounter.Lines)
-	partData.Size = uint32(blob.Size) - uint32(headerBlob.Len())
+	partData.ContentLines = int64(blob.Lines) - partData.HeaderLines
+	partData.ContentSize = uint32(blob.Size) - uint32(headerBlob.Len())
 
 	/*
 		--boundary
@@ -491,7 +522,7 @@ func (uc *Usecase) storeLeafPart(
 								 but appears only if the message part is terminated by an empty line.
 		--boundary--
 	*/
-	if isMIMEpart && lineCounter.LastByte == '\n' {
+	if isMIMEpart && blob.LastByte == '\n' {
 		partData.MultipartLines++
 	}
 
@@ -525,7 +556,7 @@ func (uc *Usecase) storeMultipart(
 	partData := &message.ContentPartData{
 		IsMIMEPart: isMIMEPart,
 	}
-	uc.fillPartDataFromHeader(ctx, header, partData)
+	uc.fillPartDataFromHeader(ctx, header, partData, false)
 	if !isMIMEPart {
 		uc.fillEnvelopeFromHeader(ctx, header, partData)
 	}
@@ -537,7 +568,7 @@ func (uc *Usecase) storeMultipart(
 		}
 	}
 	partData.HeaderSize = uint32(headerBlob.Len())
-	partData.HeaderNumLines = int64(bytes.Count(headerBlob.Bytes(), []byte("\n")))
+	partData.HeaderLines = int64(bytes.Count(headerBlob.Bytes(), []byte("\n")))
 	log.Debug("serialized multipart root header",
 		zap.Int("header_size", headerBlob.Len()),
 		zap.Int("fields_count", header.Len()))
@@ -548,7 +579,8 @@ func (uc *Usecase) storeMultipart(
 	}
 
 	// TODO: Save multipart preamble.
-	blob, err := uc.storePartBlob(ctx, accountID, msgID, partID, bytes.NewReader(headerBlob.Bytes()))
+	blob, err := uc.storePartBlob(ctx, accountID, msgID, partID,
+		bytes.NewReader(headerBlob.Bytes()), true)
 	if err != nil {
 		return nil, fmt.Errorf("store multipart root part %vblob: %w", path, err)
 	}
@@ -566,7 +598,9 @@ func (uc *Usecase) storeMultipart(
 		originalCtx,
 		accountID, msgID, path,
 		reader, boundary, orderOffset,
-		log)
+		log,
+		strings.EqualFold(partData.Type, "multipart/digest"),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -592,7 +626,7 @@ func (uc *Usecase) storeMultipartSubparts(
 	ctx context.Context,
 	accountID ulid.ULID, msgID ulid.ULID, path message.Path,
 	reader *bufio.Reader, boundary string, orderOffset int,
-	log *zap.Logger,
+	log *zap.Logger, isDigest bool,
 ) (partsCount int, parts []message.NewPart, err error) {
 	defer func() {
 		if err != nil {
@@ -619,7 +653,9 @@ func (uc *Usecase) storeMultipartSubparts(
 
 		childPart, err := uc.storePartsTree(ctx, accountID, msgID,
 			partPath, part.Header,
-			bufio.NewReader(part), orderOffset+1+len(parts), true)
+			bufio.NewReader(part), orderOffset+1+len(parts),
+			true, isDigest,
+		)
 		if err != nil {
 			return 0, nil, fmt.Errorf("store multipart part %v (%v): %w", partPath, part.Header.Get("Content-Type"), err)
 		}
@@ -629,41 +665,38 @@ func (uc *Usecase) storeMultipartSubparts(
 	return partsCount, parts, nil
 }
 
-func (uc *Usecase) storeNestedRFC822(
+func (uc *Usecase) storeRFC822InMIME(
 	ctx context.Context,
 	accountID ulid.ULID, msgID ulid.ULID,
 	path message.Path,
-	header textproto.Header, reader *bufio.Reader,
-	orderOffset int, isMIMEPart bool,
+	mimeHeader textproto.Header, reader *bufio.Reader,
+	orderOffset int, isInDigest bool,
 ) ([]message.NewPart, error) {
 	log := contextlog.FromContext(ctx).WithLazy(zap.Stringer("part_path", path))
 	originalCtx := ctx // To prevent part_path from being duplicated in recursive calls.
 	ctx = contextlog.WithLogger(ctx, log)
 
+	// MIME part information.
 	partID := ulid.Make()
 	partData := &message.ContentPartData{
-		IsMIMEPart: isMIMEPart,
+		IsMIMEPart: true,
 	}
-	uc.fillPartDataFromHeader(ctx, header, partData)
-	if !isMIMEPart {
-		uc.fillEnvelopeFromHeader(ctx, header, partData)
-	}
+	uc.fillPartDataFromHeader(ctx, mimeHeader, partData, isInDigest)
 
-	var headerBlob bytes.Buffer
-	if err := textproto.WriteHeader(&headerBlob, header); err != nil {
+	// MIME header.
+	var mimeHeaderBlob bytes.Buffer
+	if err := textproto.WriteHeader(&mimeHeaderBlob, mimeHeader); err != nil {
 		return nil, MessageFormatError{
-			Reason: fmt.Errorf("write part %v header: %w", path, err),
+			Reason: fmt.Errorf("write part %v mime header: %w", path, err),
 		}
 	}
-	partData.HeaderSize = uint32(headerBlob.Len())
-	partData.HeaderNumLines = int64(bytes.Count(headerBlob.Bytes(), []byte("\n")))
-	log.Debug("serialized rfc822 header",
-		zap.Int("header_size", headerBlob.Len()),
-		zap.Int("fields_count", header.Len()))
+	partData.HeaderSize = uint32(mimeHeaderBlob.Len())
+	partData.HeaderLines = int64(bytes.Count(mimeHeaderBlob.Bytes(), []byte("\n")))
+	log.Debug("serialized mime header",
+		zap.Int("header_size", mimeHeaderBlob.Len()),
+		zap.Int("fields_count", mimeHeader.Len()))
 
-	lineCounter := &countingReader{R: reader}
-	reader = bufio.NewReader(lineCounter)
-
+	// Inner RFC822 header.
 	nestedHeader, err := textproto.ReadHeader(reader)
 	if err != nil {
 		return nil, MessageFormatError{
@@ -671,34 +704,41 @@ func (uc *Usecase) storeNestedRFC822(
 		}
 	}
 	var nestedHeaderBlob bytes.Buffer
-	if mimeutils.IsMultipart(nestedHeader) {
-		// The only case when there are two headers in part - MIME part header and RFC822 header.
 
-		nestedData := &message.ContentPartData{}
-		uc.fillPartDataFromHeader(ctx, nestedHeader, nestedData)
-		uc.fillEnvelopeFromHeader(ctx, nestedHeader, nestedData)
+	// Nested message data.
+	nestedData := &message.ContentPartData{}
+	uc.fillPartDataFromHeader(ctx, nestedHeader, nestedData, false)
+	uc.fillEnvelopeFromHeader(ctx, nestedHeader, nestedData)
 
-		if err := textproto.WriteHeader(&nestedHeaderBlob, nestedHeader); err != nil {
-			return nil, MessageFormatError{
-				Reason: fmt.Errorf("write part %v nested rfc822 header: %w", path, err),
-			}
+	if err := textproto.WriteHeader(&nestedHeaderBlob, nestedHeader); err != nil {
+		return nil, MessageFormatError{
+			Reason: fmt.Errorf("write part %v nested rfc822 header: %w", path, err),
 		}
-		nestedData.HeaderSize = uint32(nestedHeaderBlob.Len())
-		nestedData.HeaderNumLines = int64(bytes.Count(nestedHeaderBlob.Bytes(), []byte("\n")))
-		log.Debug("serialized nested rfc822 header",
-			zap.Int("header_size", headerBlob.Len()),
-			zap.Int("fields_count", header.Len()))
+	}
+	nestedData.HeaderSize = uint32(nestedHeaderBlob.Len())
+	nestedData.HeaderLines = int64(bytes.Count(nestedHeaderBlob.Bytes(), []byte("\n")))
+	log.Debug("serialized nested rfc822 header",
+		zap.Int("header_size", nestedHeaderBlob.Len()),
+		zap.Int("fields_count", nestedHeader.Len()))
 
-		partData.Nested = nestedData
-		partData.Size = nestedData.HeaderSize
-		partData.NumLines = nestedData.HeaderNumLines
+	partData.Nested = nestedData
+	partData.ContentSize = nestedData.HeaderSize
+	partData.ContentLines = nestedData.HeaderLines
+
+	var body io.Reader = bytes.NewReader(nil)
+	addMultipartEnd := false
+	if !nestedData.IsMultipart() && !nestedData.HasNestedMessage() {
+		// TODO: Handle multipart preamble here.
+		body = reader
+		addMultipartEnd = true
 	}
 
 	blob, err := uc.storePartBlob(ctx, accountID, msgID, partID,
 		io.MultiReader(
-			bytes.NewReader(headerBlob.Bytes()),
+			bytes.NewReader(mimeHeaderBlob.Bytes()),
 			bytes.NewReader(nestedHeaderBlob.Bytes()),
-		))
+			body,
+		), true)
 	if err != nil {
 		return nil, fmt.Errorf("store part header %v blob: %w", path, err)
 	}
@@ -713,6 +753,27 @@ func (uc *Usecase) storeNestedRFC822(
 		}
 	}()
 
+	/*
+			--foo
+
+			From: m1@example.com
+			Subject: m1
+
+			m1 body
+		  					<-- this empty line, not part of body, but of a mutlipart separator
+			--foo
+			X-Mime: m2 header
+	*/
+	if addMultipartEnd && blob.LastByte == '\n' {
+		partData.MultipartLines++
+	}
+
+	nestedData.ContentSize = uint32(blob.Size) - uint32(mimeHeaderBlob.Len()) - uint32(nestedHeaderBlob.Len())
+	nestedData.ContentLines += int64(blob.Lines) - partData.HeaderLines - nestedData.HeaderLines
+	partData.ContentSize += nestedData.ContentSize
+	partData.ContentLines += nestedData.ContentLines
+
+	// Outer message. CT: message/rfc822.
 	parts := []message.NewPart{{
 		ID:         partID,
 		Order:      orderOffset,
@@ -723,38 +784,126 @@ func (uc *Usecase) storeNestedRFC822(
 	}}
 
 	if mimeutils.IsMultipart(nestedHeader) {
-		boundary, ok := partData.Nested.Params["boundary"]
+		boundary, ok := nestedData.Params["boundary"]
 		if !ok {
-			return nil, MessageFormatError{Reason: fmt.Errorf("missing boundary param in content-type of nested rfc822 multipart")}
+			return nil, MessageFormatError{Reason: fmt.Errorf("missing boundary param in content-type of nested multipart rfc822")}
 		}
 
-		var subparts []message.NewPart
-		var partsCount int
-		partsCount, subparts, err = uc.storeMultipartSubparts(
+		partsCount, subparts, err := uc.storeMultipartSubparts(
 			originalCtx,
 			accountID, msgID, path,
 			reader, boundary, orderOffset,
-			log)
+			log,
+			strings.EqualFold(partData.Type, "multipart/digest"),
+		)
 		if err != nil {
 			return nil, err
 		}
 		parts = append(parts, subparts...)
 
-		partData.MultipartSize += mimeutils.MultipartOctetSize(partsCount, boundary)
+		partData.MultipartSize = mimeutils.MultipartOctetSize(partsCount, boundary)
 		partData.MultipartLines += mimeutils.MultipartLineCount(partsCount)
-		if isMIMEPart {
-			// See storeLeafPart for details.
-			partData.MultipartLines++
-		}
-	} else {
+
+		// See storeLeafPart for details.
+		partData.MultipartLines++
+	} else if mimeutils.HasNestedRFC822(nestedHeader) {
 		rfc822Part, err := uc.storePartsTree(originalCtx, accountID, msgID,
 			path.FirstChild(), nestedHeader,
-			reader, orderOffset+1, false)
+			reader, orderOffset+1, false,
+			false)
 		if err != nil {
 			return nil, fmt.Errorf("store nested rfc822 part %v: %w", path, err)
 		}
 		parts = append(parts, rfc822Part...)
 	}
+
+	return parts, nil
+}
+
+func (uc *Usecase) storeRFC822(
+	ctx context.Context,
+	accountID ulid.ULID, msgID ulid.ULID,
+	path message.Path,
+	header textproto.Header, reader *bufio.Reader,
+	orderOffset int, isMIMEPart, isInDigest bool,
+) ([]message.NewPart, error) {
+	if isMIMEPart {
+		return uc.storeRFC822InMIME(
+			ctx,
+			accountID, msgID,
+			path,
+			header, reader,
+			orderOffset, isInDigest,
+		)
+	}
+
+	log := contextlog.FromContext(ctx).WithLazy(zap.Stringer("part_path", path))
+	originalCtx := ctx // To prevent part_path from being duplicated in recursive calls.
+	ctx = contextlog.WithLogger(ctx, log)
+
+	partID := ulid.Make()
+	partData := &message.ContentPartData{
+		IsMIMEPart: isMIMEPart,
+	}
+	uc.fillPartDataFromHeader(ctx, header, partData, false)
+	uc.fillEnvelopeFromHeader(ctx, header, partData)
+
+	// Outer RFC822 header.
+	var headerBlob bytes.Buffer
+	if err := textproto.WriteHeader(&headerBlob, header); err != nil {
+		return nil, MessageFormatError{
+			Reason: fmt.Errorf("write part %v header: %w", path, err),
+		}
+	}
+	partData.HeaderSize = uint32(headerBlob.Len())
+	partData.HeaderLines = int64(bytes.Count(headerBlob.Bytes(), []byte("\n")))
+	log.Debug("serialized rfc822 header",
+		zap.Int("header_size", headerBlob.Len()),
+		zap.Int("fields_count", header.Len()))
+
+	// Inner RFC822 header.
+	nestedHeader, err := textproto.ReadHeader(reader)
+	if err != nil {
+		return nil, MessageFormatError{
+			Reason: fmt.Errorf("read nested message %v header: %w", path, err),
+		}
+	}
+
+	blob, err := uc.storePartBlob(ctx, accountID, msgID, partID,
+		bytes.NewReader(headerBlob.Bytes()), false)
+	if err != nil {
+		return nil, fmt.Errorf("store part header %v blob: %w", path, err)
+	}
+	defer func() {
+		if err != nil {
+			if blob.ExternalID != "" {
+				log.Debug("deleting part blob", zap.String("external_id", blob.ExternalID))
+				if derr := uc.blobStore.Delete(ctx, blob.ExternalID); derr != nil {
+					log.Error("failed to delete part blob", zap.Error(derr))
+				}
+			}
+		}
+	}()
+
+	// Outer message. CT: message/rfc822.
+	parts := []message.NewPart{{
+		ID:         partID,
+		Order:      orderOffset,
+		Path:       path,
+		Content:    partData,
+		InlineBlob: blob.Inline,
+		ExternalID: blob.ExternalID,
+	}}
+
+	// Inner message. CT: whatever.
+	rfc822Part, err := uc.storePartsTree(originalCtx, accountID, msgID,
+		path.FirstChild(), nestedHeader,
+		reader, orderOffset+1, false,
+		false)
+	if err != nil {
+		return nil, fmt.Errorf("store nested rfc822 part %v: %w", path, err)
+	}
+	parts = append(parts, rfc822Part...)
 
 	log.Debug("stored nested rfc822 part",
 		zap.Stringer("part_id", partID),
@@ -822,17 +971,32 @@ func (uc *Usecase) fillEnvelopeFromHeader(ctx context.Context, header textproto.
 	data.Envelope = envelope
 }
 
-func (uc *Usecase) fillPartDataFromHeader(ctx context.Context, header textproto.Header, data *message.ContentPartData) {
+func (uc *Usecase) fillPartDataFromHeader(
+	ctx context.Context, header textproto.Header, data *message.ContentPartData,
+	defaultToRFC822 bool,
+) {
 	log := contextlog.FromContext(ctx)
 
 	parsedHeader := gomessage.Header{Header: header}
 
-	contentType, ctParams, err := parsedHeader.ContentType()
+	var contentType string
+	_, ctParams, err := parsedHeader.ContentType()
 	if err != nil {
 		log.Error("failed to parse message content type", zap.Error(err), zap.String("header_value", header.Get("Content-Type")))
 		contentType = "application/octet-stream"
 		ctParams = nil
+	} else {
+		// Preserve content-type case.
+		if ctRaw := parsedHeader.Get("Content-Type"); ctRaw != "" {
+			base, _, _ := strings.Cut(ctRaw, ";")
+			contentType = strings.TrimSpace(base)
+		} else if defaultToRFC822 {
+			contentType = "message/rfc822"
+		} else {
+			contentType = "text/plain"
+		}
 	}
+
 	data.Type = contentType
 	data.Params = ctParams
 	if len(data.Params) == 0 {
@@ -861,18 +1025,17 @@ func (uc *Usecase) fillPartDataFromHeader(ctx context.Context, header textproto.
 	data.Encoding = parsedHeader.Get("Content-Transfer-Encoding")
 }
 
-type countingReader struct {
-	R        io.Reader
+type countingWriter struct {
 	Lines    int
 	Size     int
 	LastByte byte
 }
 
-func (c *countingReader) Read(p []byte) (n int, err error) {
-	n, err = c.R.Read(p)
-	c.Lines += bytes.Count(p[:n], []byte("\r\n"))
+func (c *countingWriter) Write(p []byte) (n int, err error) {
+	n = len(p)
+	c.Lines += bytes.Count(p, []byte("\r\n"))
 	c.Size += n
-	if n != 0 {
+	if len(p) != 0 {
 		c.LastByte = p[n-1]
 	}
 	return

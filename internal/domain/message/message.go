@@ -115,11 +115,13 @@ func (p *Part) Copy() *Part {
 	}
 }
 
-func (p *Part) TotalSize() uint32     { return p.Content.TotalSize() }
-func (p *Part) TotalLines() int64     { return p.Content.TotalLines() }
-func (p *Part) IsNestedMessage() bool { return p.Content.IsNestedMessage() }
-func (p *Part) IsMultipart() bool     { return p.Content.IsMultipart() }
-func (p *Part) IsText() bool          { return p.Content.IsText() }
+func (p *Part) TotalSize() uint32      { return p.Content.TotalSize() }
+func (p *Part) TotalLines() int64      { return p.Content.TotalLines() }
+func (p *Part) HasNestedMessage() bool { return p.Content.HasNestedMessage() }
+func (p *Part) IsMessage() bool        { return p.Content.IsMessage() }
+func (p *Part) IsMultipart() bool      { return p.Content.IsMultipart() }
+func (p *Part) IsText() bool           { return p.Content.IsText() }
+func (p *Part) IsMIMEPart() bool       { return p.Content.IsMIMEPart }
 
 type NewMsg struct {
 	ID      ulid.ULID
@@ -160,9 +162,9 @@ func (np *NewPart) Validate() error {
 	if np.Content == nil {
 		return fmt.Errorf("no content data")
 	}
-	//if np.InlineBlob != nil && uint32(len(np.InlineBlob)) != np.Content.Size+np.Content.HeaderSize {
+	//if np.InlineBlob != nil && uint32(len(np.InlineBlob)) != np.Content.ContentSize+np.Content.HeaderSize {
 	//	return fmt.Errorf("inline blob (%d octets) size is not equal to size (%d, %d)",
-	//		len(np.InlineBlob), np.Content.Size, np.Content.HeaderSize)
+	//		len(np.InlineBlob), np.Content.ContentSize, np.Content.HeaderSize)
 	//}
 
 	return nil

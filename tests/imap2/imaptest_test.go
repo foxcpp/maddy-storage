@@ -53,12 +53,24 @@ func TestImaptestScripted(t *testing.T) {
 			continue
 		}
 		ext := filepath.Ext(file.Name())
-		if ext == "" {
-			tests[file.Name()] = &scriptedTest{
-				Name:     file.Name(),
-				TestFile: filepath.Join(*imaptestDir, file.Name()),
-				MboxFile: filepath.Join(*imaptestDir, "default.mbox"),
+		if ext != "" {
+			continue
+		}
+
+		mboxPath := filepath.Join(*imaptestDir, file.Name()+".mbox")
+		_, err := os.Stat(mboxPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				mboxPath = filepath.Join(*imaptestDir, "default.mbox")
+			} else {
+				t.Fatal(err)
 			}
+		}
+
+		tests[file.Name()] = &scriptedTest{
+			Name:     file.Name(),
+			TestFile: filepath.Join(*imaptestDir, file.Name()),
+			MboxFile: mboxPath,
 		}
 	}
 	// Override mbox files if relevant

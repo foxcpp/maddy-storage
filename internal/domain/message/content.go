@@ -40,34 +40,43 @@ type ContentPartData struct {
 	Disposition *Disposition `json:"disposition,omitempty"` // Content-Disposition
 
 	// Populated based on MIME header for the part or root message header.
-	Params         map[string]string `json:"params,omitempty"`      // Content-Type params
-	ID             string            `json:"id,omitempty"`          // Content-ID
-	Description    string            `json:"description,omitempty"` // Content-Description
-	Encoding       string            `json:"encoding,omitempty"`    // Content-Transfer-Encoding
-	Language       []string          `json:"language,omitempty"`    // Content-Language tags
-	Location       string            `json:"location,omitempty"`    // Content-Location link
-	Size           uint32            `json:"size,omitempty"`        // Size of part body in octets.
-	HeaderSize     uint32            `json:"header_size,omitempty"` // Size of part MIME header in octets (for Nested - of RFC822 header).
-	HeaderNumLines int64             `json:"header_num_lines,omitempty"`
-	MultipartSize  uint32            `json:"multipart_size,omitempty"` // Size of multipart separators, etc.
-	MultipartLines int64             `json:"multipart_lines,omitempty"`
-	NumLines       int64             `json:"num_lines,omitempty"` // Amount of LFs in body, populated for text/* only.
+	Params      map[string]string `json:"params,omitempty"`      // Content-Type params
+	ID          string            `json:"id,omitempty"`          // Content-ID
+	Description string            `json:"description,omitempty"` // Content-Description
+	Encoding    string            `json:"encoding,omitempty"`    // Content-Transfer-Encoding
+	Language    []string          `json:"language,omitempty"`    // Content-Language tags
+	Location    string            `json:"location,omitempty"`    // Content-Location link
+
+	// Size of part body in octets, as in stored physically for this part ID.
+	// For RFC822-in-MIME part case, this will match the size of inner header (so will be equal to Nested.HeaderSize).
+	ContentSize  uint32 `json:"content_size,omitempty"`
+	ContentLines int64  `json:"content_lines,omitempty"` // Amount of LFs in body, populated for text/* only.
+	// Size of the first header in part (e.g. root RFC822 header, MIME header). For Nested
+	// - size of the inner header.
+	HeaderSize     uint32 `json:"header_size,omitempty"`
+	HeaderLines    int64  `json:"header_num_lines,omitempty"`
+	MultipartSize  uint32 `json:"multipart_size,omitempty"` // Size of multipart separators, etc.
+	MultipartLines int64  `json:"multipart_lines,omitempty"`
 
 	Nested   *ContentPartData `json:"nested,omitempty"` // Populated only if RFC822 is stored inside MIME part.
 	Envelope *ContentEnvelope `json:"envelope,omitempty"`
 }
 
 func (c *ContentPartData) TotalSize() uint32 {
-	return c.HeaderSize + c.MultipartSize + c.Size
+	return c.HeaderSize + c.MultipartSize + c.ContentSize
 }
 
 func (c *ContentPartData) TotalLines() int64 {
-	return c.HeaderNumLines + c.MultipartLines + c.NumLines
+	return c.HeaderLines + c.MultipartLines + c.ContentLines
 }
 
-func (c *ContentPartData) IsNestedMessage() bool {
+func (c *ContentPartData) HasNestedMessage() bool {
 	return strings.EqualFold(c.Type, "message/rfc822") ||
 		strings.EqualFold(c.Type, "message/global")
+}
+
+func (c *ContentPartData) IsMessage() bool {
+	return c.Envelope != nil
 }
 
 func (c *ContentPartData) IsMultipart() bool {

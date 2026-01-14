@@ -337,6 +337,234 @@ Hello another world
 				},
 			},
 		},
+		{
+			Name: "rfc822 in mime in rfc822",
+			Text: testMessageMultipartRFC822Digest,
+			Subcases: []subcase{
+				{
+					Name: "all",
+					Path: message.EmptyPath(),
+					Opts: WriteOptions{
+						Specifier: PartMIME | PartHeader | PartBody,
+					},
+					Result: testMessageMultipartRFC822Digest,
+				},
+				{
+					Name: "mime",
+					Path: message.EmptyPath(),
+					Opts: WriteOptions{
+						Specifier: PartMIME,
+					},
+					Result: "",
+				},
+				{
+					Name: "header",
+					Path: message.EmptyPath(),
+					Opts: WriteOptions{
+						Specifier: PartHeader,
+					},
+					Result: `From: user@domain.org
+Date: Sat, 24 Mar 2007 23:00:00 +0200
+Mime-Version: 1.0
+Content-Type: message/rfc822
+
+`,
+				},
+				{
+					Name: "body",
+					Opts: WriteOptions{
+						Specifier: PartBody,
+					},
+					Result: `From: sub@domain.org
+Date: Sun, 12 Aug 2012 12:34:56 +0400
+Subject: submsg
+Content-Type: multipart/digest; boundary="foo"
+
+--foo
+
+From: m1@example.com
+Subject: m1
+
+m1 body
+
+--foo
+X-Mime: m2 header
+
+From: m2@example.com
+Subject: m2
+
+m2 body
+
+--foo--
+`,
+				},
+				{
+					Name: "path 1 - all",
+					Path: []int{1},
+					Opts: WriteOptions{
+						Specifier: PartMIME | PartHeader | PartBody,
+					},
+					Result: `From: sub@domain.org
+Date: Sun, 12 Aug 2012 12:34:56 +0400
+Subject: submsg
+Content-Type: multipart/digest; boundary="foo"
+
+--foo
+
+From: m1@example.com
+Subject: m1
+
+m1 body
+
+--foo
+X-Mime: m2 header
+
+From: m2@example.com
+Subject: m2
+
+m2 body
+
+--foo--
+`,
+				},
+				{
+					Name: "path 1 - header",
+					Path: []int{1},
+					Opts: WriteOptions{
+						Specifier: PartHeader,
+					},
+					Result: `From: sub@domain.org
+Date: Sun, 12 Aug 2012 12:34:56 +0400
+Subject: submsg
+Content-Type: multipart/digest; boundary="foo"
+
+`,
+				},
+				{
+					Name: "path 1 - text",
+					Path: []int{1},
+					Opts: WriteOptions{
+						Specifier: PartBody,
+					},
+					Result: `--foo
+
+From: m1@example.com
+Subject: m1
+
+m1 body
+
+--foo
+X-Mime: m2 header
+
+From: m2@example.com
+Subject: m2
+
+m2 body
+
+--foo--
+`,
+				},
+				{
+					Name: "path 1.1 - all",
+					Path: []int{1, 1},
+					Opts: WriteOptions{
+						Specifier: PartMIME | PartHeader | PartBody,
+					},
+					Result: `
+From: m1@example.com
+Subject: m1
+
+m1 body
+`,
+				},
+				{
+					Name: "path 1.1 - header, body",
+					Path: []int{1, 1},
+					Opts: WriteOptions{
+						Specifier: PartHeader | PartBody,
+					},
+					Result: `From: m1@example.com
+Subject: m1
+
+m1 body
+`,
+				},
+				{
+					Name: "path 1.1 - mime",
+					Path: []int{1, 1},
+					Opts: WriteOptions{
+						Specifier: PartMIME,
+					},
+					Result: `
+`,
+				},
+				{
+					Name: "path 1.1 - text",
+					Path: []int{1, 1},
+					Opts: WriteOptions{
+						Specifier: PartBody,
+					},
+					Result: `m1 body
+`,
+				},
+				{
+					Name: "path 1.2 - all",
+					Path: []int{1, 2},
+					Opts: WriteOptions{
+						Specifier: PartMIME | PartHeader | PartBody,
+					},
+					Result: `X-Mime: m2 header
+
+From: m2@example.com
+Subject: m2
+
+m2 body
+`,
+				},
+				{
+					Name: "path 1.2 - header,body",
+					Path: []int{1, 2},
+					Opts: WriteOptions{
+						Specifier: PartHeader | PartBody,
+					},
+					Result: `From: m2@example.com
+Subject: m2
+
+m2 body
+`,
+				},
+				{
+					Name: "path 1.2 - mime",
+					Path: []int{1, 2},
+					Opts: WriteOptions{
+						Specifier: PartMIME,
+					},
+					Result: `X-Mime: m2 header
+
+`,
+				},
+				{
+					Name: "path 1.2 - header",
+					Path: []int{1, 2},
+					Opts: WriteOptions{
+						Specifier: PartHeader,
+					},
+					Result: `From: m2@example.com
+Subject: m2
+
+`,
+				},
+				{
+					Name: "path 1.2 - text",
+					Path: []int{1, 2},
+					Opts: WriteOptions{
+						Specifier: PartBody,
+					},
+					Result: `m2 body
+`,
+				},
+			},
+		},
 	}
 
 	uc, _, acct := initMessageTestUsecase(t)

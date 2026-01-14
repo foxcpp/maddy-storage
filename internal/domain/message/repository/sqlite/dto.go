@@ -12,7 +12,7 @@ import (
 
 type msgDTO struct {
 	ID              ulid.ULID `gorm:"column:id;primaryKey"`
-	Date            time.Time `gorm:"column:date"`
+	ReceivedAt      time.Time `gorm:"column:received_at"`
 	TotalSize       uint32    `gorm:"column:total_size"`
 	CreatedAtModSeq uint64    `gorm:"column:created_at_modseq"`
 	ModSeq          uint64    `gorm:"column:modseq"`
@@ -57,7 +57,6 @@ func asDTO(model *message.Msg) (*msgDTO, []msgFlagDTO, []msgPartDTO, error) {
 		ID:              model.ID,
 		CreatedAtModSeq: uint64(model.CreatedAtModSeq),
 		ModSeq:          uint64(model.ModSeq),
-		Date:            model.ReceivedAt,
 		TotalSize:       model.TotalSize,
 		CreatedAt:       model.CreatedAt,
 		UpdatedAt:       model.UpdatedAt,
@@ -97,7 +96,7 @@ func asModel(msgDTO *msgDTO, flagsDTO []msgFlagDTO, partsDTO []msgPartDTO) (*mes
 		ID:              msgDTO.ID,
 		CreatedAtModSeq: folder.ModSeq(msgDTO.CreatedAtModSeq),
 		ModSeq:          folder.ModSeq(msgDTO.ModSeq),
-		ReceivedAt:      msgDTO.Date,
+		ReceivedAt:      msgDTO.ReceivedAt,
 		CreatedAt:       msgDTO.CreatedAt,
 		UpdatedAt:       msgDTO.UpdatedAt,
 	}

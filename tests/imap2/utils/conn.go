@@ -25,6 +25,7 @@ import (
 	"io"
 	"net"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -153,6 +154,18 @@ func (c *Conn) ExpectOK() {
 	c.ExpectPattern(`* OK *`)
 }
 
+func (c *Conn) ExpectSelectResults(exists, recent, uidnext int) {
+	c.T.Helper()
+
+	c.Expect(fmt.Sprintf(`* %d EXISTS`, exists))
+	c.Expect(fmt.Sprintf(`* %d RECENT`, recent))
+	c.ExpectPattern(`\* OK \[UIDVALIDITY *\] *`)
+	c.ExpectPattern(fmt.Sprintf(`\* OK \[UIDNEXT %d] *`, uidnext))
+	c.ExpectPattern(`\* FLAGS (*)`)
+	c.ExpectPattern(`\* OK \[PERMANENTFLAGS (*)] *`)
+	c.ExpectPattern(`\* LIST () "/" "*"`)
+}
+
 func (c *Conn) Login(username, password string) {
 	c.T.Helper()
 
@@ -174,6 +187,25 @@ func (c *Conn) ExpectPattern(pat string) string {
 	match, err := path.Match(pat, line)
 	if err != nil {
 		c.T.Fatal("Malformed pattern:", err)
+	}
+	if !match {
+		c.T.Fatalf("Response line not matching the expected pattern, want %q", pat)
+	}
+
+	return line
+}
+
+func (c *Conn) ExpectRegex(pat string) string {
+	c.T.Helper()
+
+	line, err := c.Readln()
+	if err != nil {
+		c.T.Fatal("Unexpected I/O error:", err)
+	}
+
+	match, err := regexp.MatchString(pat, line)
+	if err != nil {
+		c.T.Fatal("Malformed regex:", err)
 	}
 	if !match {
 		c.T.Fatalf("Response line not matching the expected pattern, want %q", pat)
