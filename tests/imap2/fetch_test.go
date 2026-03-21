@@ -19,14 +19,14 @@ Date: Sun, 12 Aug 2012 12:34:56 +0300
 Subject: submsg
 Content-Type: multipart/digest; boundary="foo"
 
---foo 
+--foo
 
 From: m1@example.com
 Subject: m1
 
 m1 body
 
---foo 
+--foo
 X-Mime: m2 header
 
 From: m2@example.com
@@ -60,9 +60,14 @@ m2 body
 	c.ExpectOK()
 
 	c.Writeln(". FETCH 1 (BODY.PEEK[])")
-	c.Expect(fmt.Sprintf(`* FETCH (BODY[] {%d}`, len(msg)))
-	for _, line := range strings.Split(msg, "\n") {
-		c.Expect(line)
+	c.Expect(fmt.Sprintf(`* 1 FETCH (BODY[] {%d}`, len(msg)))
+	lines := strings.Split(msg, "\r\n")
+	for i, line := range lines {
+		if i == len(lines)-1 {
+			c.Expect(line + ")")
+		} else {
+			c.Expect(line)
+		}
 	}
 	c.ExpectOK()
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/emersion/go-message/mail"
 	"github.com/emersion/go-message/textproto"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
@@ -24,6 +25,16 @@ func timeInRange(val time.Time, gt, lt time.Time, dateOnly bool) bool {
 		gt = time.Date(gt.Year(), gt.Month(), gt.Day(), 0, 0, 0, 0, time.UTC)
 		lt = time.Date(lt.Year(), lt.Month(), lt.Day(), 0, 0, 0, 0, time.UTC)
 		val = time.Date(val.Year(), val.Month(), val.Day(), 0, 0, 0, 0, time.UTC)
+	}
+
+	if gt.IsZero() && lt.IsZero() {
+		return true
+	}
+	if gt.IsZero() {
+		return val.Before(lt)
+	}
+	if lt.IsZero() {
+		return val.After(gt)
 	}
 
 	return val.After(gt) && val.Before(lt)
@@ -174,7 +185,13 @@ func matchHeader(ctx context.Context, m *message.Msg, openPart FuncOpenPart, con
 
 	for _, field := range cond {
 		match := false
+
+		isAddress := isAddressField(field.Key)
+
 		for _, val := range hdr.Values(field.Key) {
+			if isAddress {
+				val = normalizeAddressField(val)
+			}
 			if strings.Contains(val, field.Value) {
 				match = true
 			}
@@ -184,6 +201,30 @@ func matchHeader(ctx context.Context, m *message.Msg, openPart FuncOpenPart, con
 		}
 	}
 	return true, nil
+}
+
+func isAddressField(key string) bool {
+	switch strings.ToLower(key) {
+	case "sender", "from", "to", "cc", "bcc", "reply-to":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeAddressField(value string) string {
+	addrList, err := mail.ParseAddressList(value)
+	if err != nil {
+		return value
+	}
+	b := strings.Builder{}
+	for i, addr := range addrList {
+		b.WriteString(addr.String())
+		if i != len(addrList)-1 {
+			b.WriteString(", ")
+		}
+	}
+	return b.String()
 }
 
 func matchBody(ctx context.Context, m *message.Msg, openPart FuncOpenPart, text, body []string) (bool, error) {

@@ -1,17 +1,25 @@
+version: "2"
 linters:
   enable:
-  - gosimple
-  - errcheck
-  - staticcheck
-  - ineffassign
-  - typecheck
-  - govet
-  - unused
-  - goimports
-  - prealloc
-  - unconvert
-  - misspell
-  - whitespace
-  - nakedret
-  - dogsled
-  - copyloopvar
+    - errcheck
+    - staticcheck
+    - ineffassign
+    - govet
+    - unused
+    - prealloc
+    - unconvert
+    - misspell
+    - whitespace
+    - nakedret
+    - dogsled
+    - copyloopvar
+    - dupl
+    - errchkjson
+    - errorlint
+    - goconst
+    - iface
+    - testifylint
+    - sqlclosecheck
+formatters:
+  enable:
+    - goimports

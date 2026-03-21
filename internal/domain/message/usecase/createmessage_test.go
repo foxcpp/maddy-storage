@@ -708,7 +708,18 @@ m2 body
 			sort.Slice(gotMsg.Parts, func(i, j int) bool { return gotMsg.Parts[i].Order < gotMsg.Parts[j].Order })
 			c.Data.Content.Envelope = c.Data.Parts[0].Content.Envelope
 
-			require.Equal(t, c.Data, gotMsg)
+			if len(c.Data.Parts) == len(gotMsg.Parts) {
+				// if parts count match - compare them separately
+				// to have more detailed comparison
+				for i := range c.Data.Parts {
+					require.EqualExportedValues(
+						t, c.Data.Parts[i], gotMsg.Parts[i],
+						"message part indx %d contents mismatch",
+						i,
+					)
+				}
+			}
+			require.EqualExportedValues(t, c.Data, gotMsg)
 			for partPath, partContents := range gotParts {
 				expectedPart := c.PartBlobs[partPath]
 				require.Equal(t, expectedPart, partContents, "message part [%v]", partPath)

@@ -4,10 +4,12 @@ package imap2
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,12 +30,42 @@ type scriptedTest struct {
 	MboxFile string
 }
 
+func sourceFilename() (string, error) {
+	_, filename, _, ok := runtime.Caller(1)
+	if !ok {
+		return "", errors.New("unable to get the current filename")
+	}
+	return filename, nil
+}
+
+func sourceDirname() (string, error) {
+	filename, err := sourceFilename()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(filename), nil
+}
+
 func TestImaptestScripted(t *testing.T) {
 	if *imaptestBinary == "" {
-		t.Skip("No imaptest binary specified")
+		imaptestGlobal, err := exec.LookPath("imaptest")
+		if err != nil || imaptestGlobal == "" {
+			t.Skip("No imaptest binary specified or available in PATH")
+		}
+		*imaptestBinary = imaptestGlobal
 	}
 	if *imaptestDir == "" {
-		t.Skip("No imaptest scripted tests dir specified")
+		sourceDir, err := sourceDirname()
+		if err != nil {
+			t.Skip("No imaptest scripted tests dir specified and default dir is unavailable")
+		}
+		defaultPath := filepath.Join(sourceDir, "imaptest", "tests")
+		_, err = os.Stat(defaultPath)
+		if err != nil {
+			t.Skip("No imaptest scripted tests dir specified and default dir is unavailable")
+		}
+		t.Log("using default dir:", defaultPath)
+		*imaptestDir = defaultPath
 	}
 
 	var err error
