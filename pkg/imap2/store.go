@@ -7,7 +7,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"go.uber.org/zap"
 )
 
@@ -39,7 +39,7 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 		}
 	}
 
-	ctx = contextlog.WithLogger(ctx, s.log.WithLazy(
+	ctx = contextlib.WithLogger(ctx, s.log.WithLazy(
 		zap.String("imap_command", "STORE"),
 		zap.Stringer("imap_numset", numSet),
 		zap.Stringer("folder_id", s.mbox.FolderID)))

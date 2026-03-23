@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 )
@@ -25,7 +25,7 @@ func (uc *Usecase) AddFlags(
 	ctx context.Context, accountID, folderID ulid.ULID, numIDs folder.Range,
 	flags []string, modSeqLe folder.ModSeq, returnSeq bool,
 ) ([]UpdatedMessage, error) {
-	log := contextlog.FromContext(ctx)
+	log := contextlib.FromContext(ctx)
 
 	modSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
 	if err != nil {
@@ -76,7 +76,7 @@ func (uc *Usecase) SetFlags(
 	ctx context.Context, accountID, folderID ulid.ULID, numIDs folder.Range,
 	flags []string, modSeqLe folder.ModSeq, returnSeq bool,
 ) ([]UpdatedMessage, error) {
-	log := contextlog.FromContext(ctx)
+	log := contextlib.FromContext(ctx)
 
 	modSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
 	if err != nil {
@@ -124,7 +124,7 @@ func (uc *Usecase) DeleteFlags(
 	ctx context.Context, accountID, folderID ulid.ULID, numIDs folder.Range,
 	flags []string, modSeqLe folder.ModSeq, returnSeq bool,
 ) ([]UpdatedMessage, error) {
-	log := contextlog.FromContext(ctx)
+	log := contextlib.FromContext(ctx)
 
 	modSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
 	if err != nil {

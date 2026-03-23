@@ -11,7 +11,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/blob"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
@@ -80,7 +80,7 @@ func (s *Searcher) matchBodyAndAggregate(
 		}
 		msgs, err := s.msgRepo.GetByIDs(ctx, 0, msgIDs...)
 		if err != nil {
-			contextlog.FromContext(ctx).Error("failed to fetch message batch, skipping", zap.Error(err))
+			contextlib.FromContext(ctx).Error("failed to fetch message batch, skipping", zap.Error(err))
 			continue
 		}
 
@@ -91,7 +91,7 @@ func (s *Searcher) matchBodyAndAggregate(
 			}
 			matched, err := s.matchMessage(ctx, ent, &msg, bodyCond)
 			if err != nil {
-				contextlog.FromContext(ctx).Error("failed to check message body match, skipping",
+				contextlib.FromContext(ctx).Error("failed to check message body match, skipping",
 					zap.Error(err), zap.Stringer("msg_id", msg.ID))
 				continue
 			}

@@ -5,7 +5,7 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"go.uber.org/zap"
 )
 
@@ -13,7 +13,7 @@ func (s *session) Status(mailbox string, options *imap.StatusOptions) (*imap.Sta
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Status")
 	defer task.End()
 
-	ctx = contextlog.WithLogger(ctx, s.log.WithLazy(
+	ctx = contextlib.WithLogger(ctx, s.log.WithLazy(
 		zap.String("imap_command", "STATUS"),
 		zap.String("imap_mailbox", mailbox),
 		zap.Any("imap_opts", options)))

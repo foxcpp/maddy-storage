@@ -6,7 +6,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"go.uber.org/zap"
 )
 
@@ -30,7 +30,7 @@ func (s *session) Expunge(w *imapserver.ExpungeWriter, uids *imap.UIDSet) error 
 		zap.Any("imap_uids", uids),
 		zap.Stringer("folder_id", s.mbox.FolderID),
 	)
-	ctx = contextlog.WithLogger(ctx, log)
+	ctx = contextlib.WithLogger(ctx, log)
 
 	var uidsRange folder.Range
 	if uids != nil {

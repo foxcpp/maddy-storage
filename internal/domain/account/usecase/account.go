@@ -9,7 +9,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/account"
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 )
@@ -82,7 +82,7 @@ func (a Account) Create(ctx context.Context, name string) (*account.Account, err
 
 	// IMAP requires INBOX folder to exist so always create one.
 	folderIDs := make([]ulid.ULID, 0, len(a.cfg.InitialFolders)+1)
-	inbox, err := folder.NewFolder(nil, acct.ID, "INBOX", folder.RoleInbox)
+	inbox, err := folder.NewFolder(nil, acct.ID, folder.FolderINBOX, folder.RoleInbox)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (a Account) Create(ctx context.Context, name string) (*account.Account, err
 		return nil, fmt.Errorf("failed to create IMAP folders: %w", err)
 	}
 
-	contextlog.FromContext(ctx).Debug("account created",
+	contextlib.FromContext(ctx).Debug("account created",
 		zap.Stringer("account_id", acct.ID), zap.String("name", name))
 
 	return acct, nil

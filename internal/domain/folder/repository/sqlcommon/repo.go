@@ -589,9 +589,14 @@ func (r repo) GetEntryByRange(ctx context.Context, folderID ulid.ULID, ranges fo
 
 	var entries []entryDTO
 
-	q := r.db.Gorm(ctx).Select("folder_entries.*, seqnums.seq AS seq").
+	q := r.db.Gorm(ctx).
 		Table("folder_entries").
 		Where("folder_entries.folder_id = ?", folderID)
+	if returnSeq {
+		q = q.Select("folder_entries.*, seqnums.seq AS seq")
+	} else {
+		q = q.Select("folder_entries.*")
+	}
 
 	if ranges.SeqNum || returnSeq {
 		q = joinSeqNum(q, ranges.At, ranges.DeletesAt, folderID)
@@ -604,7 +609,7 @@ func (r repo) GetEntryByRange(ctx context.Context, folderID ulid.ULID, ranges fo
 
 	err := q.Find(&entries).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("find: %w", err)
 	}
 
 	models := make([]folder.Entry, 0, len(entries))

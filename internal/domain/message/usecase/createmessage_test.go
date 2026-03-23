@@ -20,7 +20,7 @@ import (
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
 	searchersqlcommon "github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlcommon"
 	"github.com/foxcpp/maddy-storage/internal/domain/metadata"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
@@ -28,7 +28,7 @@ import (
 )
 
 func initMessageTestUsecase(t *testing.T) (Usecase, *storememory.Store, *account.Account) {
-	ctx := contextlog.WithLogger(context.Background(), zaptest.NewLogger(t))
+	ctx := contextlib.WithLogger(context.Background(), zaptest.NewLogger(t))
 
 	db, err := sqlite.NewMemory(sqlite.Cfg{})
 	if err != nil {
@@ -663,7 +663,7 @@ m2 body
 		t.Run(c.Name, func(t *testing.T) {
 			blobs.Clear()
 
-			ctx := contextlog.WithLogger(context.Background(), zaptest.NewLogger(t))
+			ctx := contextlib.WithLogger(context.Background(), zaptest.NewLogger(t))
 
 			crlfText := strings.ReplaceAll(c.Text, "\n", "\r\n")
 
@@ -783,7 +783,7 @@ func TestMessage_CreateMessage_Lossless(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.Name, func(t *testing.T) {
-			ctx := contextlog.WithLogger(context.Background(), zaptest.NewLogger(t))
+			ctx := contextlib.WithLogger(context.Background(), zaptest.NewLogger(t))
 
 			crlfText := strings.ReplaceAll(c.Text, "\n", "\r\n")
 

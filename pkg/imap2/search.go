@@ -7,7 +7,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"go.uber.org/zap"
 )
 
@@ -119,7 +119,7 @@ func (s *session) Search(kind imapserver.NumKind, criteria *imap.SearchCriteria,
 		zap.String("imap_command", "SEARCH"),
 		zap.Any("imap_criteria", criteria),
 		zap.Any("imap_opts", options))
-	ctx = contextlog.WithLogger(ctx, log)
+	ctx = contextlib.WithLogger(ctx, log)
 
 	cond, hasModSeq, err := s.criteriaAsSearcherCond(criteria)
 	if err != nil {

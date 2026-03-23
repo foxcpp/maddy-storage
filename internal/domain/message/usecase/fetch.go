@@ -44,7 +44,7 @@ func (uc *Usecase) Fetch(ctx context.Context,
 
 	entries, err := uc.folderRepo.GetEntryByRange(ctx, folderID, ids, returnSeq)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetEntryByRange: %w", err)
 	}
 
 	if len(entries) == 0 {
@@ -60,7 +60,7 @@ func (uc *Usecase) Fetch(ctx context.Context,
 
 	msgs, err := uc.msgRepo.GetByIDs(ctx, modSeqGt, msgIDs...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetByIDs: %w", err)
 	}
 
 	fetched := make([]FetchedMessage, 0, len(msgs))

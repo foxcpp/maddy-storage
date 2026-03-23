@@ -9,7 +9,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 )
 
 var (
@@ -56,7 +56,7 @@ func folderRoleAsSpecial(r folder.Role) imap.MailboxAttr {
 func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, options *imap.ListOptions) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.List")
 	defer task.End()
-	ctx = contextlog.WithLogger(ctx, s.log)
+	ctx = contextlib.WithLogger(ctx, s.log)
 
 	if len(patterns) == 0 {
 		// Special request to return path separator and root.

@@ -8,10 +8,11 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
+	"github.com/foxcpp/maddy-storage/internal/domain/account"
 	accountusecase "github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 )
@@ -111,9 +112,15 @@ func (b *Backend) newSession(c *imapserver.Conn) (imapserver.Session, *imapserve
 		zap.Stringer("remote_addr", c.NetConn().RemoteAddr()))
 
 	ctx, sessionCancel := context.WithCancelCause(context.Background())
-	ctx = contextlog.WithLogger(ctx, log)
+	ctx = contextlib.WithLogger(ctx, log)
 	ctx, task := trace.NewTask(ctx, "maddy-storage/imap2.Session")
 	trace.Log(ctx, "session_id", sid.String())
+
+	ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{
+		"session_id":  sid.String(),
+		"local_addr":  c.NetConn().LocalAddr().String(),
+		"remote_addr": c.NetConn().RemoteAddr().String(),
+	})
 
 	return &session{
 			b:             b,
@@ -154,6 +161,9 @@ func (s *session) Unauthenticate() error {
 	}
 	s.accountID = ulid.ULID{}
 	s.log.Debug("unauthenticated")
+	s.ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{
+		"authz_username": "",
+	})
 	return nil
 }
 
@@ -190,7 +200,40 @@ func (s *session) Login(username, password string) error {
 	}
 	s.log.Info("authenticated", zap.String("sasl_username", username), zap.Stringer("account_id", authzULID))
 	s.accountID = authzULID
+	return s.SetMetadata(s.ctx, map[string]string{
+		"authz_username": username,
+	})
+}
+
+func (s *session) SetMetadata(ctx context.Context, md map[string]string) error {
+	s.ctx = contextlib.WithAdditionalMeta(ctx, md)
 	return nil
+}
+
+func (s *session) SetAccount(ctx context.Context, username string) error {
+	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.SetAccount")
+	defer task.End()
+
+	acct, err := s.b.accounts.GetByName(ctx, username)
+	if err != nil {
+		if errors.Is(err, account.ErrNotFound) {
+			s.log.Info("no such account", zap.String("username", username))
+			return imapserver.ErrAuthFailed
+		}
+		s.log.Error("authentication error", zap.Error(err))
+		return &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: imap.ResponseCodeUnavailable,
+			Text: "internal server error, sid: " + s.sid.String(),
+		}
+	}
+
+	s.log.Info("authenticated via SetAccount", zap.String("sasl_username", username), zap.Stringer("account_id", acct.ID))
+	s.accountID = acct.ID
+
+	return s.SetMetadata(s.ctx, map[string]string{
+		"authz_username": username,
+	})
 }
 
 func (s *session) Close() error {

@@ -13,7 +13,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 )
@@ -29,7 +29,7 @@ func (s *session) applyExpungeUpdates(ctx context.Context, w ExpungeWriter, entr
 		return nil
 	}
 
-	log := contextlog.FromContext(ctx)
+	log := contextlib.FromContext(ctx)
 
 	needMaxUIDUpd := false
 	newAt := s.mbox.DeletesAt
@@ -93,7 +93,7 @@ func (s *session) applyOtherUpdates(ctx context.Context, w *imapserver.UpdateWri
 		return nil
 	}
 
-	log := contextlog.FromContext(ctx)
+	log := contextlib.FromContext(ctx)
 
 	newAt := s.mbox.At
 	newMaxUID := s.mbox.MaxUID
@@ -183,7 +183,7 @@ func (s *session) updateRecents(ctx context.Context, w *imapserver.UpdateWriter)
 		err        error
 	)
 
-	log := contextlog.FromContext(ctx)
+	log := contextlib.FromContext(ctx)
 
 	if s.mbox.ReadOnly {
 		newRecents, err = s.b.recents.GetRecents(ctx, s.mbox.FolderID, s.mbox.At)
@@ -211,12 +211,12 @@ func (s *session) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Poll")
 	defer task.End()
 
-	log := contextlog.FromContext(ctx).WithLazy(
+	log := contextlib.FromContext(ctx).WithLazy(
 		zap.Stringer("imap_selected_id", s.mbox.FolderID),
 		zap.Uint32("msgs_count", s.mbox.Msgs),
 	)
 	initialAt, initialDeletesAt := s.mbox.At, s.mbox.DeletesAt
-	ctx = contextlog.WithLogger(ctx, log)
+	ctx = contextlib.WithLogger(ctx, log)
 
 	changeMask := folder.ChangeNewMessage | folder.ChangeMessageUpdated
 	if allowExpunge {
@@ -275,12 +275,12 @@ func (s *session) Idle(w *imapserver.UpdateWriter, stop <-chan struct{}) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	log := contextlog.FromContext(ctx).WithLazy(
+	log := contextlib.FromContext(ctx).WithLazy(
 		zap.String("imap_command", "IDLE"),
 		zap.Stringer("imap_selected_id", s.mbox.FolderID),
 	)
 	initialAt, initialDeletesAt := s.mbox.At, s.mbox.DeletesAt
-	ctx = contextlog.WithLogger(ctx, log)
+	ctx = contextlib.WithLogger(ctx, log)
 
 	go func() {
 		<-stop

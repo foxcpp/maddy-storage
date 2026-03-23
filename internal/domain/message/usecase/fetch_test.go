@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 )
@@ -572,7 +572,7 @@ Subject: m2
 
 	for _, c := range cases {
 		t.Run(c.Name, func(t *testing.T) {
-			ctx := contextlog.WithLogger(context.Background(), zaptest.NewLogger(t))
+			ctx := contextlib.WithLogger(context.Background(), zaptest.NewLogger(t))
 
 			crlfText := strings.ReplaceAll(c.Text, "\n", "\r\n")
 			storedMsg, err := uc.bufferStoreMessage(ctx, acct.ID, 0, now, []string{"$testFlag"}, int64(len(crlfText)), strings.NewReader(crlfText))

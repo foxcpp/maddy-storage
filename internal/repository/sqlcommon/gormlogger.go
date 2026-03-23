@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -17,7 +17,7 @@ type GormLogger struct {
 }
 
 func (g GormLogger) zap(ctx context.Context) *zap.Logger {
-	return contextlog.FromContext(ctx).
+	return contextlib.FromContext(ctx).
 		With(zap.String("component", "gorm")).
 		WithOptions(zap.AddCallerSkip(3))
 }

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 )
@@ -24,7 +24,7 @@ type CopyData struct {
 func (uc *Usecase) Copy(ctx context.Context, accountID ulid.ULID, ids folder.Range, sourceID ulid.ULID, targetPath string) (*CopyData, error) {
 	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.Copy").End()
 
-	log := contextlog.FromContext(ctx)
+	log := contextlib.FromContext(ctx)
 
 	sourceFolder, err := uc.folderRepo.GetByID(ctx, sourceID)
 	if err != nil {
@@ -143,7 +143,7 @@ func (uc *Usecase) Move(ctx context.Context, accountID ulid.ULID,
 ) (*CopyData, error) {
 	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.Move").End()
 
-	log := contextlog.FromContext(ctx)
+	log := contextlib.FromContext(ctx)
 
 	sourceFolder, err := uc.folderRepo.GetByID(ctx, sourceID)
 	if err != nil {

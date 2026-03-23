@@ -7,14 +7,14 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 )
 
 func (s *session) Create(mailbox string, options *imap.CreateOptions) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Create")
 	defer task.End()
-	ctx = contextlog.WithLogger(ctx, s.log)
+	ctx = contextlib.WithLogger(ctx, s.log)
 
 	mailbox = strings.TrimRight(mailbox, folder.PathSeparator)
 
@@ -63,7 +63,7 @@ func (s *session) Create(mailbox string, options *imap.CreateOptions) error {
 func (s *session) Delete(mailbox string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Delete")
 	defer task.End()
-	ctx = contextlog.WithLogger(ctx, s.log)
+	ctx = contextlib.WithLogger(ctx, s.log)
 
 	if strings.EqualFold(mailbox, "INBOX") {
 		return &imap.Error{
@@ -84,7 +84,7 @@ func (s *session) Delete(mailbox string) error {
 func (s *session) Rename(mailbox, newName string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Rename")
 	defer task.End()
-	ctx = contextlog.WithLogger(ctx, s.log)
+	ctx = contextlib.WithLogger(ctx, s.log)
 
 	mailbox = strings.TrimRight(mailbox, folder.PathSeparator)
 	newName = strings.TrimRight(newName, folder.PathSeparator)
@@ -119,7 +119,7 @@ func (s *session) Rename(mailbox, newName string) error {
 func (s *session) Subscribe(mailbox string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Subscribe")
 	defer task.End()
-	ctx = contextlog.WithLogger(ctx, s.log)
+	ctx = contextlib.WithLogger(ctx, s.log)
 
 	err := s.b.folders.Subscribe(ctx, s.accountID, mailbox)
 	return s.asIMAPError(err)
@@ -128,7 +128,7 @@ func (s *session) Subscribe(mailbox string) error {
 func (s *session) Unsubscribe(mailbox string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Unsubscribe")
 	defer task.End()
-	ctx = contextlog.WithLogger(ctx, s.log)
+	ctx = contextlib.WithLogger(ctx, s.log)
 
 	err := s.b.folders.Unsubscribe(ctx, s.accountID, mailbox)
 	return s.asIMAPError(err)

@@ -14,7 +14,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -263,7 +263,7 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Fetch")
 	defer task.End()
 
-	ctx = contextlog.WithLogger(ctx, s.log.WithLazy(
+	ctx = contextlib.WithLogger(ctx, s.log.WithLazy(
 		zap.String("imap_command", "FETCH"),
 		zap.Stringer("imap_numset", numSet),
 		zap.Array("imap_opts", loggedFetchOptions{options: options})))

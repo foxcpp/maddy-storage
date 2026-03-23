@@ -9,7 +9,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
@@ -66,6 +66,28 @@ type FolderData struct {
 	UnseenMsgs uint32
 
 	MaxModSeq folder.ModSeq
+}
+
+func (f Folder) GetByRole(ctx context.Context, accountID ulid.ULID, role folder.Role, fallbackName string) (*folder.Folder, error) {
+	roleFolder, err := f.repo.GetByAccount(ctx, accountID, folder.Filter{
+		Role: &role,
+	}, folder.OrderByName)
+	if err != nil || len(roleFolder) == 0 {
+		if err != nil && !errors.Is(err, folder.ErrNotFound) {
+			return nil, fmt.Errorf("GetByRole %s: %w", role, err)
+		}
+
+		fallback, err := f.repo.GetByPath(ctx, accountID, fallbackName)
+		if err != nil {
+			if errors.Is(err, folder.ErrNotFound) {
+				return nil, fmt.Errorf("GetByRole %s: fallback GetByPath %s: %w", role, fallbackName, err)
+			}
+			return nil, fmt.Errorf("GetByRole %s: %w", role, err)
+		}
+		return fallback, nil
+	}
+
+	return &roleFolder[0], nil
 }
 
 func (f Folder) List(ctx context.Context, accountID ulid.ULID, opts *ListOpts, order folder.Order) ([]FolderData, error) {
@@ -261,7 +283,7 @@ func (f Folder) Create(ctx context.Context, accountID ulid.ULID, path string, ro
 		return nil, storeerrors.InternalError{Reason: fmt.Errorf("create imap: %w", err)}
 	}
 
-	contextlog.FromContext(ctx).Info("created folder", zap.Stringer("id", newFolder.ID), zap.String("path", path))
+	contextlib.FromContext(ctx).Info("created folder", zap.Stringer("id", newFolder.ID), zap.String("path", path))
 
 	return newFolder, nil
 }
@@ -274,7 +296,7 @@ func (f Folder) Rename(ctx context.Context, accountID ulid.ULID, oldPath, newPat
 		return nil, storeerrors.LogicError{Text: "cannot move folder into itself"}
 	}
 
-	log := contextlog.FromContext(ctx)
+	log := contextlib.FromContext(ctx)
 
 	var oldParent *folder.Folder
 	oldName := oldPath
@@ -341,7 +363,7 @@ func (f Folder) Delete(ctx context.Context, accountID ulid.ULID, recursive bool,
 		if err := f.repo.Delete(ctx, deleted.ID); err != nil {
 			return nil, err
 		}
-		contextlog.FromContext(ctx).Info("deleted folder", zap.Stringer("id", deleted.ID), zap.String("path", deleted.Path))
+		contextlib.FromContext(ctx).Info("deleted folder", zap.Stringer("id", deleted.ID), zap.String("path", deleted.Path))
 		return []folder.DeletedFolder{
 			{
 				ID:   deleted.ID,

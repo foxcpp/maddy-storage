@@ -13,7 +13,7 @@ import (
 	"github.com/emersion/go-message/mail"
 	"github.com/emersion/go-message/textproto"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/pkg/mimeutils"
 	"go.uber.org/zap"
 )
@@ -178,7 +178,7 @@ func matchHeader(ctx context.Context, m *message.Msg, openPart FuncOpenPart, con
 
 	hdr, err := textproto.ReadHeader(bufio.NewReader(partReader))
 	if err != nil {
-		contextlog.FromContext(ctx).Warn("skipping message with malformed header",
+		contextlib.FromContext(ctx).Warn("skipping message with malformed header",
 			zap.Stringer("msg_id", m.ID), zap.Error(err))
 		return false, nil
 	}
@@ -259,7 +259,7 @@ func matchBodyPart(ctx context.Context, m *message.Msg, part *message.Part,
 ) error {
 	rc, err := openPart(ctx, part)
 	if err != nil {
-		contextlog.FromContext(ctx).Warn("unable to open part, skipping",
+		contextlib.FromContext(ctx).Warn("unable to open part, skipping",
 			zap.Stringer("msg_id", m.ID), zap.Stringer("part_id", part.ID), zap.Error(err))
 		return nil
 	}
@@ -270,7 +270,7 @@ func matchBodyPart(ctx context.Context, m *message.Msg, part *message.Part,
 	if len(body) == 0 {
 		// TODO: Proper handling of message/rfc822 inside a MIME part.
 		if err := mimeutils.SkipHeader(buf); err != nil {
-			contextlog.FromContext(ctx).Warn("unable to open part, skipping",
+			contextlib.FromContext(ctx).Warn("unable to open part, skipping",
 				zap.Stringer("msg_id", m.ID), zap.Stringer("part_id", part.ID), zap.Error(err))
 			return nil
 		}
@@ -292,7 +292,7 @@ func matchBodyPart(ctx context.Context, m *message.Msg, part *message.Part,
 	if part.Content.Encoding != "" {
 		decR, err := mimeutils.EncodingReader(part.Content.Encoding, buf)
 		if err != nil {
-			contextlog.FromContext(ctx).Warn("unable to open part, skipping",
+			contextlib.FromContext(ctx).Warn("unable to open part, skipping",
 				zap.Stringer("msg_id", m.ID), zap.Stringer("part_id", part.ID), zap.Error(err))
 			return nil
 		}
@@ -313,7 +313,7 @@ func matchBodyPart(ctx context.Context, m *message.Msg, part *message.Part,
 		}
 	}
 	if err := bufScnr.Err(); err != nil {
-		contextlog.FromContext(ctx).Warn("skipping message due to an I/O error",
+		contextlib.FromContext(ctx).Warn("skipping message due to an I/O error",
 			zap.Stringer("msg_id", m.ID), zap.Stringer("part_id", part.ID), zap.Error(err))
 		return nil
 	}

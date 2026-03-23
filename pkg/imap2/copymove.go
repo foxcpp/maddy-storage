@@ -5,7 +5,7 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"go.uber.org/zap"
 )
 
@@ -25,7 +25,7 @@ func (s *session) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string
 		zap.String("imap_command", "MOVE"),
 		zap.Stringer("imap_numset", numSet),
 	)
-	ctx = contextlog.WithLogger(ctx, log)
+	ctx = contextlib.WithLogger(ctx, log)
 
 	ids, err := s.mbox.idsAsRange(numSet)
 	if err != nil {
@@ -76,7 +76,7 @@ func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) 
 		zap.String("imap_command", "COPY"),
 		zap.Stringer("imap_numset", numSet),
 	)
-	ctx = contextlog.WithLogger(ctx, log)
+	ctx = contextlib.WithLogger(ctx, log)
 
 	ids, err := s.mbox.idsAsRange(numSet)
 	if err != nil {

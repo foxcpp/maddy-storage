@@ -4,7 +4,7 @@ import (
 	"runtime/trace"
 
 	"github.com/emersion/go-imap/v2"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"go.uber.org/zap"
 )
 
@@ -24,7 +24,7 @@ func (s *session) Append(mailbox string, r imap.LiteralReader, options *imap.App
 		zap.String("imap_command", "APPEND"),
 		zap.String("imap_mailbox", mailbox),
 		zap.Int64("imap_size", r.Size()))
-	ctx = contextlog.WithLogger(ctx, log)
+	ctx = contextlib.WithLogger(ctx, log)
 
 	flags := make([]string, len(options.Flags))
 	for i, flag := range options.Flags {

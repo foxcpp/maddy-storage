@@ -170,9 +170,11 @@ func (np *NewPart) Validate() error {
 	return nil
 }
 
-func New(data *NewMsg) (*Msg, error) {
-	// TODO: Populate metadata from context
+func New(data *NewMsg, additionalMeta metadata.Md) (*Msg, error) {
 	md := metadata.New()
+	for k, v := range additionalMeta {
+		md.Set(k, v)
+	}
 
 	if err := data.Validate(); err != nil {
 		return nil, fmt.Errorf("new msg: %v", err)

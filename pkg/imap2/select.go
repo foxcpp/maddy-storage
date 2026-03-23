@@ -8,7 +8,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"go.uber.org/zap"
 )
 
@@ -25,7 +25,7 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 		zap.String("imap_command", "SELECT"),
 		zap.String("imap_mailbox", mailbox),
 		zap.Any("imap_opts", options))
-	ctx = contextlog.WithLogger(ctx, log)
+	ctx = contextlib.WithLogger(ctx, log)
 
 	s.enabledCaps = s.c.EnabledCaps()
 

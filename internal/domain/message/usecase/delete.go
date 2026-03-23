@@ -8,7 +8,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
-	"github.com/foxcpp/maddy-storage/internal/pkg/contextlog"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
 )
@@ -88,7 +88,7 @@ func (uc *Usecase) Delete(
 			PreviouslyDeleted: false,
 		})
 	}
-	contextlog.FromContext(ctx).Info("messages soft-deleted",
+	contextlib.FromContext(ctx).Info("messages soft-deleted",
 		zap.Stringer("folder_id", folderID),
 		zap.Stringer("account_id", accountID),
 		zap.Uint64("modseq", uint64(delModSeq)),
@@ -158,7 +158,7 @@ func (uc *Usecase) CleanDanglingMessages(ctx context.Context) error {
 		return fmt.Errorf("failed to delete messages from db: %w", err)
 	}
 
-	contextlog.FromContext(ctx).Info("dangling messages deleted from db and storage",
+	contextlib.FromContext(ctx).Info("dangling messages deleted from db and storage",
 		zap.Int("count", len(msgIDs)),
 		zap.Uint64("size", removedSize),
 		zap.Uint64("external_size", removedSizeExternal),
@@ -213,7 +213,7 @@ func (uc *Usecase) CleanDeleted(ctx context.Context, accountID, folderID ulid.UL
 		return fmt.Errorf("failed to delete messages from db: %w", err)
 	}
 
-	contextlog.FromContext(ctx).Info("messages deleted from db and storage",
+	contextlib.FromContext(ctx).Info("messages deleted from db and storage",
 		zap.Stringer("account_id", accountID),
 		zap.Stringer("folder_id", folderID),
 		zap.Int("count", len(msgIDs)),
