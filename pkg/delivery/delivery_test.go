@@ -102,12 +102,9 @@ func TestDeliverySimple(t *testing.T) {
 	assert.NoError(t, err, "StartDelivery failed")
 
 	d.SetFlags([]string{"custom_flag"})
-	assert.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{
-		PreferredRole: folder.RoleInbox,
-	}))
-	assert.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{
-		PreferredRole: folder.RoleInbox,
-	}))
+	assert.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{}))
+	assert.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{}))
+	assert.NoError(t, d.SelectFolders(ctx, folder.RoleInbox))
 	assert.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
 	assert.NoError(t, d.Commit(ctx))
 
@@ -165,12 +162,9 @@ func TestDeliveryRole(t *testing.T) {
 	assert.NoError(t, err, "StartDelivery failed")
 
 	d.SetFlags([]string{"custom_flag"})
-	assert.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{
-		PreferredRole: folder.RoleJunk,
-	}))
-	assert.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{
-		PreferredRole: folder.RoleJunk,
-	}))
+	assert.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{}))
+	assert.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{}))
+	assert.NoError(t, d.SelectFolders(ctx, folder.RoleJunk))
 	assert.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
 	assert.NoError(t, d.Commit(ctx))
 
@@ -239,13 +233,12 @@ func TestDeliveryAdditionalPremable(t *testing.T) {
 
 	d.SetFlags([]string{"custom_flag"})
 	assert.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{
-		PreferredRole:      folder.RoleJunk,
 		AdditionalPremable: []byte("X-Delivered-To: test_account1\r\n"),
 	}))
 	assert.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{
-		PreferredRole:      folder.RoleJunk,
 		AdditionalPremable: []byte("X-Delivered-To: test_account2\r\n"),
 	}))
+	assert.NoError(t, d.SelectFolders(ctx, folder.RoleJunk))
 	assert.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
 	assert.NoError(t, d.Commit(ctx))
 

@@ -51,13 +51,18 @@ func (c *Container) StartDelivery(ctx context.Context, id string) (*Delivery, er
 	}, nil
 }
 
+type rcpt struct {
+	acct               *account.Account
+	folder             *folder.Folder
+	additionalPreamble []byte
+}
+
 type Delivery struct {
 	c *Container
 
-	id                 string
-	folders            []folder.Folder
-	additionalPreamble [][]byte
-	flags              []string
+	id    string
+	rcpts []rcpt
+	flags []string
 
 	msg *message.NewMsg
 
@@ -65,7 +70,6 @@ type Delivery struct {
 }
 
 type RcptOpts struct {
-	PreferredRole      folder.Role
 	AdditionalPremable []byte
 }
 
@@ -88,13 +92,10 @@ func (d *Delivery) AddRcpt(
 		return fmt.Errorf("AddRcpt %s: %w", accountName, err)
 	}
 
-	fold, err := d.c.folder.GetByRole(ctx, acct.ID, opts.PreferredRole, folder.FolderINBOX)
-	if err != nil {
-		return fmt.Errorf("AddRcpt %s: %w", accountName, err)
-	}
-
-	d.folders = append(d.folders, *fold)
-	d.additionalPreamble = append(d.additionalPreamble, opts.AdditionalPremable)
+	d.rcpts = append(d.rcpts, rcpt{
+		acct:               acct,
+		additionalPreamble: opts.AdditionalPremable,
+	})
 
 	return nil
 }
@@ -110,18 +111,41 @@ func (d *Delivery) PrepareBody(ctx context.Context, size int64, r io.Reader) err
 		"delivery_id": d.id,
 	})
 
-	if len(d.folders) == 0 {
-		return fmt.Errorf("need at least one folder selected for PrepareBody")
+	if len(d.rcpts) == 0 {
+		return fmt.Errorf("need at least one recipient selected for PrepareBody")
 	}
 
 	var err error
 	d.msg, err = d.c.msg.PrepareMessage(
-		ctx, d.folders[0].AccountID, time.Now(),
+		ctx, d.rcpts[0].acct.ID, time.Now(),
 		d.flags, size, r,
 	)
 	if err != nil {
 		return fmt.Errorf("PrepareMessage: %w", err)
 	}
+	return nil
+}
+
+func (d *Delivery) SelectFolders(ctx context.Context, preferredRole folder.Role) error {
+	ctx, task := trace.NewTask(ctx, "maddy-storage/delivery.SelectFolders")
+	defer task.End()
+	ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{
+		"delivery_id": d.id,
+	})
+
+	for i, rcpt := range d.rcpts {
+		if rcpt.folder != nil {
+			continue
+		}
+
+		fold, err := d.c.folder.GetByRole(ctx, rcpt.acct.ID, preferredRole, folder.FolderINBOX)
+		if err != nil {
+			return fmt.Errorf("SelectFolders %s: %w", preferredRole, err)
+		}
+
+		d.rcpts[i].folder = fold
+	}
+
 	return nil
 }
 
@@ -152,7 +176,7 @@ func (d *Delivery) Commit(ctx context.Context) error {
 		"delivery_id": d.id,
 	})
 
-	if len(d.folders) == 0 {
+	if len(d.rcpts) == 0 {
 		return d.Close(ctx)
 	}
 	if d.msg == nil {
@@ -166,7 +190,7 @@ func (d *Delivery) Commit(ctx context.Context) error {
 	originalPart0Content := d.msg.Parts[0].Content
 	originalPart0Blob := d.msg.Parts[0].InlineBlob
 
-	for i, fldr := range d.folders {
+	for i, rcpt := range d.rcpts {
 		msg := d.msg
 
 		if i != 0 {
@@ -178,8 +202,8 @@ func (d *Delivery) Commit(ctx context.Context) error {
 			}
 		}
 
-		if d.additionalPreamble[i] != nil {
-			preamble := d.additionalPreamble[i]
+		if rcpt.additionalPreamble != nil {
+			preamble := rcpt.additionalPreamble
 			msg.Parts[0].Content.HeaderSize = originalPart0Content.HeaderSize + uint32(len(preamble))
 			msg.Parts[0].Content.HeaderLines += originalPart0Content.HeaderLines + int64(bytes.Count(preamble, []byte("\n")))
 
@@ -189,11 +213,11 @@ func (d *Delivery) Commit(ctx context.Context) error {
 		}
 
 		_, err := d.c.msg.AddMessageToFolder(
-			ctx, fldr.AccountID,
-			msg, &fldr,
+			ctx, rcpt.acct.ID,
+			msg, rcpt.folder,
 		)
 		if err != nil {
-			return fmt.Errorf("AddMessageToFolder %v: %w", fldr.ID, err)
+			return fmt.Errorf("AddMessageToFolder %v: %w", rcpt.folder.ID, err)
 		}
 	}
 
