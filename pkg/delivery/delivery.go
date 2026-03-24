@@ -17,6 +17,7 @@ import (
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/oklog/ulid/v2"
+	"go.uber.org/zap"
 )
 
 var ErrUnknownRecipient = errors.New("no such recipient")
@@ -25,19 +26,22 @@ type Config struct{}
 
 type Container struct {
 	cfg    Config
-	acct   *accountusecase.Account
-	folder *folderusecase.Folder
-	msg    *messageusecase.Usecase
+	logger *zap.Logger
+	acct   accountusecase.Account
+	folder folderusecase.Folder
+	msg    messageusecase.Usecase
 }
 
 func NewContainer(
 	cfg Config,
-	acct *accountusecase.Account,
-	folder *folderusecase.Folder,
-	msg *messageusecase.Usecase,
+	logger *zap.Logger,
+	acct accountusecase.Account,
+	folder folderusecase.Folder,
+	msg messageusecase.Usecase,
 ) *Container {
 	return &Container{
 		cfg:    cfg,
+		logger: logger,
 		acct:   acct,
 		folder: folder,
 		msg:    msg,
@@ -83,6 +87,7 @@ func (d *Delivery) AddRcpt(
 	ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{
 		"delivery_id": d.id,
 	})
+	ctx = contextlib.WithLogger(ctx, d.c.logger)
 
 	acct, err := d.c.acct.GetByName(ctx, accountName)
 	if err != nil {
@@ -110,6 +115,7 @@ func (d *Delivery) PrepareBody(ctx context.Context, size int64, r io.Reader) err
 	ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{
 		"delivery_id": d.id,
 	})
+	ctx = contextlib.WithLogger(ctx, d.c.logger)
 
 	if len(d.rcpts) == 0 {
 		return fmt.Errorf("need at least one recipient selected for PrepareBody")
@@ -132,6 +138,7 @@ func (d *Delivery) SelectFolders(ctx context.Context, preferredRole folder.Role)
 	ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{
 		"delivery_id": d.id,
 	})
+	ctx = contextlib.WithLogger(ctx, d.c.logger)
 
 	for i, rcpt := range d.rcpts {
 		if rcpt.folder != nil {
@@ -159,8 +166,9 @@ func (d *Delivery) Close(ctx context.Context) error {
 	ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{
 		"delivery_id": d.id,
 	})
+	ctx = contextlib.WithLogger(ctx, d.c.logger)
 
-	if d.c.msg != nil {
+	if d.msg != nil {
 		if err := d.c.msg.RemoveDanglingParts(ctx, d.msg); err != nil {
 			return fmt.Errorf("RemoveDanglingParts: %w", err)
 		}
@@ -175,6 +183,7 @@ func (d *Delivery) Commit(ctx context.Context) error {
 	ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{
 		"delivery_id": d.id,
 	})
+	ctx = contextlib.WithLogger(ctx, d.c.logger)
 
 	if len(d.rcpts) == 0 {
 		return d.Close(ctx)

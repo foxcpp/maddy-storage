@@ -71,16 +71,17 @@ func initTestContainer(t *testing.T) (*Container, *storememory.Store) {
 
 	c := NewContainer(
 		Config{},
-		&acctUC,
-		&foldUC,
-		&msgUC,
+		zaptest.NewLogger(t),
+		acctUC,
+		foldUC,
+		msgUC,
 	)
 
 	return c, blobStore
 }
 
 func TestDeliverySimple(t *testing.T) {
-	ctx := contextlib.WithLogger(context.Background(), zaptest.NewLogger(t))
+	ctx := context.Background()
 
 	c, _ := initTestContainer(t)
 
