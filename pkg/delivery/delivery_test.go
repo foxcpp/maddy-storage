@@ -22,6 +22,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/tests/imap2/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -100,37 +101,37 @@ func TestDeliverySimple(t *testing.T) {
 	}
 
 	d, err := c.StartDelivery(ctx, "DELIVERY_ID")
-	assert.NoError(t, err, "StartDelivery failed")
+	require.NoError(t, err, "StartDelivery failed")
 
 	d.SetFlags([]string{"custom_flag"})
-	assert.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{}))
-	assert.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{}))
-	assert.NoError(t, d.SelectFolders(ctx, folder.RoleInbox))
-	assert.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
-	assert.NoError(t, d.Commit(ctx))
+	require.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{}))
+	require.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{}))
+	require.NoError(t, d.SelectFolders(ctx, folder.RoleInbox))
+	require.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
+	require.NoError(t, d.Commit(ctx))
 
-	assert.NoError(t, d.Close(ctx), "Close after Commit must not fail")
+	require.NoError(t, d.Close(ctx), "Close after Commit must not fail")
 
 	for _, acct := range []*account.Account{acct1, acct2} {
 		foldData, err := c.msg.FetchFolderInfo(ctx, acct.ID, folder.FolderINBOX, messageusecase.InfoOpts{
 			ReturnMaxUID: true,
 			CountMsgs:    true,
 		})
-		assert.NoError(t, err)
-		assert.EqualValues(t, foldData.Msgs, 1)
+		require.NoError(t, err)
+		require.EqualValues(t, foldData.Msgs, 1)
 
 		msg, err := c.msg.Fetch(ctx, acct.ID, foldData.Folder.ID, folder.Range{
 			Values: []uint32{foldData.MaxUID},
 		}, folder.ModSeq(0), false)
 		assert.NoError(t, err)
 		assert.NotNil(t, msg)
-		assert.Len(t, msg, 1)
+		require.Len(t, msg, 1)
 
 		assert.Equal(t, msg[0].Msg.Flags, []string{"custom_flag"})
 		assert.Equal(t, msg[0].Msg.Meta["delivery_id"], "DELIVERY_ID")
 
 		var buf bytes.Buffer
-		assert.NoError(t, c.msg.WritePart(
+		require.NoError(t, c.msg.WritePart(
 			ctx, &msg[0].Msg, msg[0].Msg.Parts[0].Path,
 			&buf, messageusecase.WriteOptions{
 				Specifier: messageusecase.PartDefault,
@@ -160,14 +161,14 @@ func TestDeliveryRole(t *testing.T) {
 	}
 
 	d, err := c.StartDelivery(ctx, "DELIVERY_ID")
-	assert.NoError(t, err, "StartDelivery failed")
+	require.NoError(t, err, "StartDelivery failed")
 
 	d.SetFlags([]string{"custom_flag"})
-	assert.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{}))
-	assert.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{}))
-	assert.NoError(t, d.SelectFolders(ctx, folder.RoleJunk))
-	assert.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
-	assert.NoError(t, d.Commit(ctx))
+	require.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{}))
+	require.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{}))
+	require.NoError(t, d.SelectFolders(ctx, folder.RoleJunk))
+	require.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
+	require.NoError(t, d.Commit(ctx))
 
 	assert.NoError(t, d.Close(ctx), "Close after Commit must not fail")
 
@@ -175,7 +176,7 @@ func TestDeliveryRole(t *testing.T) {
 		msg, err := c.msg.Fetch(ctx, acct.ID, foldData.Folder.ID, folder.Range{
 			Values: []uint32{foldData.MaxUID},
 		}, folder.ModSeq(0), false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.NotNil(t, msg)
 		assert.Len(t, msg, 1)
 
@@ -183,7 +184,7 @@ func TestDeliveryRole(t *testing.T) {
 		assert.Equal(t, msg[0].Msg.Meta["delivery_id"], "DELIVERY_ID")
 
 		var buf bytes.Buffer
-		assert.NoError(t, c.msg.WritePart(
+		require.NoError(t, c.msg.WritePart(
 			ctx, &msg[0].Msg, msg[0].Msg.Parts[0].Path,
 			&buf, messageusecase.WriteOptions{
 				Specifier: messageusecase.PartDefault,
@@ -196,7 +197,7 @@ func TestDeliveryRole(t *testing.T) {
 		ReturnMaxUID: true,
 		CountMsgs:    true,
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.EqualValues(t, fold1Data.Msgs, 1)
 	checkMsg(acct1, &fold1Data)
 
@@ -205,7 +206,7 @@ func TestDeliveryRole(t *testing.T) {
 		ReturnMaxUID: true,
 		CountMsgs:    true,
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.EqualValues(t, fold2Data.Msgs, 1)
 	checkMsg(acct2, &fold2Data)
 }
@@ -230,18 +231,18 @@ func TestDeliveryAdditionalPremable(t *testing.T) {
 	}
 
 	d, err := c.StartDelivery(ctx, "DELIVERY_ID")
-	assert.NoError(t, err, "StartDelivery failed")
+	require.NoError(t, err, "StartDelivery failed")
 
 	d.SetFlags([]string{"custom_flag"})
-	assert.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{
+	require.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{
 		AdditionalPremable: []byte("X-Delivered-To: test_account1\r\n"),
 	}))
-	assert.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{
+	require.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{
 		AdditionalPremable: []byte("X-Delivered-To: test_account2\r\n"),
 	}))
-	assert.NoError(t, d.SelectFolders(ctx, folder.RoleJunk))
-	assert.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
-	assert.NoError(t, d.Commit(ctx))
+	require.NoError(t, d.SelectFolders(ctx, folder.RoleJunk))
+	require.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
+	require.NoError(t, d.Commit(ctx))
 
 	checkMsg := func(acct *account.Account, foldData *messageusecase.FolderInfo) {
 		t.Helper()
@@ -249,7 +250,7 @@ func TestDeliveryAdditionalPremable(t *testing.T) {
 		msg, err := c.msg.Fetch(ctx, acct.ID, foldData.Folder.ID, folder.Range{
 			Values: []uint32{foldData.MaxUID},
 		}, folder.ModSeq(0), false)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.NotNil(t, msg)
 		assert.Len(t, msg, 1)
 
@@ -257,7 +258,7 @@ func TestDeliveryAdditionalPremable(t *testing.T) {
 		assert.Equal(t, msg[0].Msg.Meta["delivery_id"], "DELIVERY_ID")
 
 		var buf bytes.Buffer
-		assert.NoError(t, c.msg.WritePart(
+		require.NoError(t, c.msg.WritePart(
 			ctx, &msg[0].Msg, msg[0].Msg.Parts[0].Path,
 			&buf, messageusecase.WriteOptions{
 				Specifier: messageusecase.PartDefault,
@@ -270,7 +271,7 @@ func TestDeliveryAdditionalPremable(t *testing.T) {
 		ReturnMaxUID: true,
 		CountMsgs:    true,
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.EqualValues(t, fold1Data.Msgs, 1)
 	checkMsg(acct1, &fold1Data)
 
@@ -279,7 +280,7 @@ func TestDeliveryAdditionalPremable(t *testing.T) {
 		ReturnMaxUID: true,
 		CountMsgs:    true,
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.EqualValues(t, fold2Data.Msgs, 1)
 	checkMsg(acct2, &fold2Data)
 }
