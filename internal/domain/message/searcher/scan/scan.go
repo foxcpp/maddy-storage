@@ -80,7 +80,7 @@ func (s *Searcher) matchBodyAndAggregate(
 		}
 		msgs, err := s.msgRepo.GetByIDs(ctx, 0, msgIDs...)
 		if err != nil {
-			contextlib.FromContext(ctx).Error("failed to fetch message batch, skipping", zap.Error(err))
+			contextlib.Logger(ctx).Error("failed to fetch message batch, skipping", zap.Error(err))
 			continue
 		}
 
@@ -91,7 +91,7 @@ func (s *Searcher) matchBodyAndAggregate(
 			}
 			matched, err := s.matchMessage(ctx, ent, &msg, bodyCond)
 			if err != nil {
-				contextlib.FromContext(ctx).Error("failed to check message body match, skipping",
+				contextlib.Logger(ctx).Error("failed to check message body match, skipping",
 					zap.Error(err), zap.Stringer("msg_id", msg.ID))
 				continue
 			}

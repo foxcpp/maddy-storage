@@ -25,7 +25,7 @@ func (uc *Usecase) AddFlags(
 	ctx context.Context, accountID, folderID ulid.ULID, numIDs folder.Range,
 	flags []string, modSeqLe folder.ModSeq, returnSeq bool,
 ) ([]UpdatedMessage, error) {
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	modSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
 	if err != nil {
@@ -76,7 +76,7 @@ func (uc *Usecase) SetFlags(
 	ctx context.Context, accountID, folderID ulid.ULID, numIDs folder.Range,
 	flags []string, modSeqLe folder.ModSeq, returnSeq bool,
 ) ([]UpdatedMessage, error) {
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	modSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
 	if err != nil {
@@ -124,7 +124,7 @@ func (uc *Usecase) DeleteFlags(
 	ctx context.Context, accountID, folderID ulid.ULID, numIDs folder.Range,
 	flags []string, modSeqLe folder.ModSeq, returnSeq bool,
 ) ([]UpdatedMessage, error) {
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	modSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
 	if err != nil {

@@ -17,7 +17,7 @@ type GormLogger struct {
 }
 
 func (g GormLogger) zap(ctx context.Context) *zap.Logger {
-	return contextlib.FromContext(ctx).
+	return contextlib.Logger(ctx).
 		With(zap.String("component", "gorm")).
 		WithOptions(zap.AddCallerSkip(3))
 }

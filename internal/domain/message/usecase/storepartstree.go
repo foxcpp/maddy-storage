@@ -49,7 +49,7 @@ func (uc *Usecase) storeLeafPart(
 	header textproto.Header, reader *bufio.Reader,
 	orderOffset int, isMIMEpart bool,
 ) ([]message.NewPart, error) {
-	log := contextlib.FromContext(ctx).WithLazy(zap.Stringer("part_path", path))
+	log := contextlib.Logger(ctx).WithLazy(zap.Stringer("part_path", path))
 	ctx = contextlib.WithLogger(ctx, log)
 
 	partID := ulid.Make()
@@ -130,7 +130,7 @@ func (uc *Usecase) storeMultipart(
 	header textproto.Header, reader *bufio.Reader,
 	orderOffset int, isMIMEPart bool,
 ) ([]message.NewPart, error) {
-	log := contextlib.FromContext(ctx).WithLazy(zap.Stringer("part_path", path))
+	log := contextlib.Logger(ctx).WithLazy(zap.Stringer("part_path", path))
 	originalCtx := ctx // To prevent part_path from being duplicated in recursive calls.
 	ctx = contextlib.WithLogger(ctx, log)
 
@@ -254,7 +254,7 @@ func (uc *Usecase) storeRFC822InMIME(
 	mimeHeader textproto.Header, reader *bufio.Reader,
 	orderOffset int, isInDigest bool,
 ) ([]message.NewPart, error) {
-	log := contextlib.FromContext(ctx).WithLazy(zap.Stringer("part_path", path))
+	log := contextlib.Logger(ctx).WithLazy(zap.Stringer("part_path", path))
 	originalCtx := ctx // To prevent part_path from being duplicated in recursive calls.
 	ctx = contextlib.WithLogger(ctx, log)
 
@@ -419,7 +419,7 @@ func (uc *Usecase) storeRFC822(
 		)
 	}
 
-	log := contextlib.FromContext(ctx).WithLazy(zap.Stringer("part_path", path))
+	log := contextlib.Logger(ctx).WithLazy(zap.Stringer("part_path", path))
 	originalCtx := ctx // To prevent part_path from being duplicated in recursive calls.
 	ctx = contextlib.WithLogger(ctx, log)
 
@@ -497,7 +497,7 @@ func (uc *Usecase) storeRFC822(
 }
 
 func (uc *Usecase) fillEnvelopeFromHeader(ctx context.Context, header textproto.Header, data *message.ContentPartData) {
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 	parsedHeader := gomail.Header{Header: gomessage.Header{Header: header}}
 
 	envelope := &message.ContentEnvelope{}
@@ -557,7 +557,7 @@ func (uc *Usecase) fillPartDataFromHeader(
 	ctx context.Context, header textproto.Header, data *message.ContentPartData,
 	defaultToRFC822 bool,
 ) {
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	parsedHeader := gomessage.Header{Header: header}
 

@@ -22,6 +22,8 @@ import (
 
 var ErrUnknownRecipient = errors.New("no such recipient")
 
+type ExternalBuffer = messageusecase.Buffer
+
 type Config struct{}
 
 type Container struct {
@@ -107,6 +109,29 @@ func (d *Delivery) AddRcpt(
 
 func (d *Delivery) SetFlags(flags []string) {
 	d.flags = flags
+}
+
+func (d *Delivery) PrepareBodyBuffered(ctx context.Context, buffer messageusecase.Buffer) error {
+	ctx, task := trace.NewTask(ctx, "maddy-storage/delivery.PrepareBodyBuffered")
+	defer task.End()
+	ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{
+		"delivery_id": d.id,
+	})
+	ctx = contextlib.WithLogger(ctx, d.c.logger)
+
+	if len(d.rcpts) == 0 {
+		return fmt.Errorf("need at least one recipient selected for PrepareBody")
+	}
+
+	var err error
+	d.msg, err = d.c.msg.PrepareMessageBuffered(
+		ctx, d.rcpts[0].acct.ID, time.Now(),
+		d.flags, buffer,
+	)
+	if err != nil {
+		return fmt.Errorf("PrepareMessage: %w", err)
+	}
+	return nil
 }
 
 func (d *Delivery) PrepareBody(ctx context.Context, size int64, r io.Reader) error {

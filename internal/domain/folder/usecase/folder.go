@@ -283,7 +283,7 @@ func (f Folder) Create(ctx context.Context, accountID ulid.ULID, path string, ro
 		return nil, storeerrors.InternalError{Reason: fmt.Errorf("create imap: %w", err)}
 	}
 
-	contextlib.FromContext(ctx).Info("created folder", zap.Stringer("id", newFolder.ID), zap.String("path", path))
+	contextlib.Logger(ctx).Info("created folder", zap.Stringer("id", newFolder.ID), zap.String("path", path))
 
 	return newFolder, nil
 }
@@ -296,7 +296,7 @@ func (f Folder) Rename(ctx context.Context, accountID ulid.ULID, oldPath, newPat
 		return nil, storeerrors.LogicError{Text: "cannot move folder into itself"}
 	}
 
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	var oldParent *folder.Folder
 	oldName := oldPath
@@ -363,7 +363,7 @@ func (f Folder) Delete(ctx context.Context, accountID ulid.ULID, recursive bool,
 		if err := f.repo.Delete(ctx, deleted.ID); err != nil {
 			return nil, err
 		}
-		contextlib.FromContext(ctx).Info("deleted folder", zap.Stringer("id", deleted.ID), zap.String("path", deleted.Path))
+		contextlib.Logger(ctx).Info("deleted folder", zap.Stringer("id", deleted.ID), zap.String("path", deleted.Path))
 		return []folder.DeletedFolder{
 			{
 				ID:   deleted.ID,

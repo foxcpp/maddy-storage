@@ -104,7 +104,7 @@ func (a Account) Create(ctx context.Context, name string) (*account.Account, err
 		return nil, fmt.Errorf("failed to create IMAP folders: %w", err)
 	}
 
-	contextlib.FromContext(ctx).Debug("account created",
+	contextlib.Logger(ctx).Debug("account created",
 		zap.Stringer("account_id", acct.ID), zap.String("name", name))
 
 	return acct, nil

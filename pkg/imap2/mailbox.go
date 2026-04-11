@@ -81,7 +81,7 @@ func (s *session) Delete(mailbox string) error {
 	return nil
 }
 
-func (s *session) Rename(mailbox, newName string) error {
+func (s *session) Rename(mailbox, newName string, opts *imap.RenameOptions) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Rename")
 	defer task.End()
 	ctx = contextlib.WithLogger(ctx, s.log)

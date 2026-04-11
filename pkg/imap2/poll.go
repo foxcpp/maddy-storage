@@ -29,7 +29,7 @@ func (s *session) applyExpungeUpdates(ctx context.Context, w ExpungeWriter, entr
 		return nil
 	}
 
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	needMaxUIDUpd := false
 	newAt := s.mbox.DeletesAt
@@ -93,7 +93,7 @@ func (s *session) applyOtherUpdates(ctx context.Context, w *imapserver.UpdateWri
 		return nil
 	}
 
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	newAt := s.mbox.At
 	newMaxUID := s.mbox.MaxUID
@@ -183,7 +183,7 @@ func (s *session) updateRecents(ctx context.Context, w *imapserver.UpdateWriter)
 		err        error
 	)
 
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	if s.mbox.ReadOnly {
 		newRecents, err = s.b.recents.GetRecents(ctx, s.mbox.FolderID, s.mbox.At)
@@ -211,7 +211,7 @@ func (s *session) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Poll")
 	defer task.End()
 
-	log := contextlib.FromContext(ctx).WithLazy(
+	log := contextlib.Logger(ctx).WithLazy(
 		zap.Stringer("imap_selected_id", s.mbox.FolderID),
 		zap.Uint32("msgs_count", s.mbox.Msgs),
 	)
@@ -275,7 +275,7 @@ func (s *session) Idle(w *imapserver.UpdateWriter, stop <-chan struct{}) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	log := contextlib.FromContext(ctx).WithLazy(
+	log := contextlib.Logger(ctx).WithLazy(
 		zap.String("imap_command", "IDLE"),
 		zap.Stringer("imap_selected_id", s.mbox.FolderID),
 	)

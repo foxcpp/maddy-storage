@@ -16,26 +16,26 @@ import (
 	"go.uber.org/zap"
 )
 
-func (uc *Usecase) tempBuffer(ctx context.Context, accountID ulid.ULID, size int64, mime io.Reader) (b buffer, err error) {
+func (uc *Usecase) tempBuffer(ctx context.Context, accountID ulid.ULID, size int64, mime io.Reader) (b Buffer, err error) {
 	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.tempBuffer").End()
 
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	if size <= uc.cfg.MemoryBufferMaxSize {
 		buf := bytes.Buffer{}
 		buf.Grow(int(size))
 
 		if _, err := io.Copy(&buf, mime); err != nil {
-			return buffer{}, fmt.Errorf("copy into memory: %w", err)
+			return nil, fmt.Errorf("copy into memory: %w", err)
 		}
 		log.Debug("message temporary buffer is in memory", zap.Int64("size", size))
-		return buffer{buf: buf}, nil
+		return memoryBuffer{buf: buf, len: buf.Len()}, nil
 	}
 
 	key := accountID.String() + "_temp_" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	w, err := uc.tempStore.Create(ctx, key)
 	if err != nil {
-		return buffer{}, storeerrors.InternalError{Reason: fmt.Errorf("create temp buffer: %w", err)}
+		return nil, storeerrors.InternalError{Reason: fmt.Errorf("create temp buffer: %w", err)}
 	}
 	defer func() {
 		cerr := w.Close()
@@ -57,12 +57,12 @@ func (uc *Usecase) tempBuffer(ctx context.Context, accountID ulid.ULID, size int
 	size, err = io.Copy(w, mime)
 	if err != nil {
 		// no wrapping, there may be both internal (store write) and client I/O errors.
-		return buffer{}, fmt.Errorf("copy into temp buffer: %w", err)
+		return nil, fmt.Errorf("copy into temp buffer: %w", err)
 	}
 
 	log.Debug("message temporary buffer in temp store", zap.Int64("size", size), zap.String("key", key))
 
-	return buffer{
+	return storeBuffer{
 		len:      int(size),
 		store:    uc.tempStore,
 		storeKey: key,
@@ -88,7 +88,7 @@ func (uc *Usecase) storePartBlob(
 	ctx context.Context, accountID, msgID, partID ulid.ULID,
 	from io.Reader, countLines bool,
 ) (storedBlob, error) {
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	// First try to read up to N bytes.
 	initial := make([]byte, uc.cfg.InlineMaxPartSize)
@@ -139,7 +139,7 @@ func (uc *Usecase) storeExternalBlob(
 	ctx context.Context, accountID, msgID, partID ulid.ULID,
 	from io.Reader, countLines bool,
 ) (storedBlob, error) {
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	externalID, wc, err := uc.createPartExternalBlob(ctx, accountID, msgID, partID)
 	if err != nil {

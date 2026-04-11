@@ -143,9 +143,7 @@ func (s *session) Search(kind imapserver.NumKind, criteria *imap.SearchCriteria,
 		return nil, s.asIMAPError(err)
 	}
 
-	data := &imap.SearchData{
-		UID: kind == imapserver.NumKindUID,
-	}
+	data := &imap.SearchData{}
 
 	if options.ReturnCount {
 		data.Count = result.Count

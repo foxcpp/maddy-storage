@@ -26,25 +26,45 @@ type memReader struct{ *bytes.Reader }
 
 func (memReader) Close() error { return nil }
 
-type buffer struct {
-	buf      bytes.Buffer
+type Buffer interface {
+	Open(ctx context.Context) (io.ReadCloser, error)
+	ReadBytes(ctx context.Context) ([]byte, error)
+	Len() int
+	Close() error
+}
+
+type memoryBuffer struct {
+	buf bytes.Buffer
+	len int
+}
+
+func (b memoryBuffer) Open(ctx context.Context) (io.ReadCloser, error) {
+	return memReader{Reader: bytes.NewReader(b.buf.Bytes())}, nil
+}
+
+func (b memoryBuffer) ReadBytes(ctx context.Context) ([]byte, error) {
+	return b.buf.Bytes(), nil
+}
+
+func (b memoryBuffer) Len() int {
+	return b.len
+}
+
+func (b memoryBuffer) Close() error {
+	return nil
+}
+
+type storeBuffer struct {
 	len      int
 	store    blob.Store
 	storeKey string
 }
 
-func (b buffer) Open(ctx context.Context) (io.ReadCloser, error) {
-	if b.storeKey == "" {
-		return memReader{Reader: bytes.NewReader(b.buf.Bytes())}, nil
-	}
+func (b storeBuffer) Open(ctx context.Context) (io.ReadCloser, error) {
 	return b.store.Open(ctx, b.storeKey)
 }
 
-func (b buffer) ReadBytes(ctx context.Context) ([]byte, error) {
-	if b.storeKey == "" {
-		return b.buf.Bytes(), nil
-	}
-
+func (b storeBuffer) ReadBytes(ctx context.Context) ([]byte, error) {
 	r, err := b.store.Open(ctx, b.storeKey)
 	if err != nil {
 		return nil, err
@@ -52,12 +72,11 @@ func (b buffer) ReadBytes(ctx context.Context) ([]byte, error) {
 	return io.ReadAll(r)
 }
 
-func (b buffer) Len() int { return b.len }
+func (b storeBuffer) Len() int {
+	return b.len
+}
 
-func (b buffer) Close() error {
-	if b.storeKey == "" {
-		return nil
-	}
+func (b storeBuffer) Close() error {
 	return b.store.Delete(context.Background(), b.storeKey)
 }
 
@@ -77,7 +96,7 @@ func (uc *Usecase) CreateMessage(
 	targetFolder, err := uc.folderRepo.GetByPath(ctx, accountID, folderPath)
 	if err != nil {
 		if derr := uc.RemoveDanglingParts(ctx, newMsg); derr != nil {
-			contextlib.FromContext(ctx).Error("RemoveDanglingParts failed", zap.Error(derr))
+			contextlib.Logger(ctx).Error("RemoveDanglingParts failed", zap.Error(derr))
 		}
 		return nil, fmt.Errorf("get folder by path %v: %w", folderPath, err)
 	}
@@ -85,7 +104,7 @@ func (uc *Usecase) CreateMessage(
 	createData, err := uc.AddMessageToFolder(ctx, accountID, newMsg, targetFolder)
 	if err != nil {
 		if derr := uc.RemoveDanglingParts(ctx, newMsg); derr != nil {
-			contextlib.FromContext(ctx).Error("RemoveDanglingParts failed", zap.Error(derr))
+			contextlib.Logger(ctx).Error("RemoveDanglingParts failed", zap.Error(derr))
 		}
 		return nil, fmt.Errorf("add message to folder: %w", err)
 	}
@@ -105,23 +124,38 @@ func (uc *Usecase) PrepareMessage(
 ) (*message.NewMsg, error) {
 	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.PrepareMessage").End()
 
-	msgID := ulid.Make()
-
-	log := contextlib.FromContext(ctx).With(zap.Stringer("message_id", msgID))
-	ctx = contextlib.WithLogger(ctx, log)
-
 	buff, err := uc.tempBuffer(ctx, accountID, size, mime)
 	if err != nil {
 		return nil, fmt.Errorf("buffer msg: %w", err)
 	}
-	defer func(buff buffer) {
+	defer func(buff Buffer) {
 		err := buff.Close()
 		if err != nil {
-			log.Error("failed to delete temporary buffer", zap.Error(err), zap.String("key", buff.storeKey))
+			contextlib.Logger(ctx).Error("failed to delete temporary buffer", zap.Error(err))
 		}
 	}(buff)
 
-	r, err := buff.Open(ctx)
+	return uc.PrepareMessageBuffered(
+		ctx,
+		accountID,
+		date, flags,
+		buff,
+	)
+}
+
+func (uc *Usecase) PrepareMessageBuffered(
+	ctx context.Context,
+	accountID ulid.ULID,
+	date time.Time, flags []string,
+	buffer Buffer,
+) (*message.NewMsg, error) {
+	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.PrepareMessageBuffered").End()
+
+	msgID := ulid.Make()
+	log := contextlib.Logger(ctx).With(zap.Stringer("message_id", msgID))
+	ctx = contextlib.WithLogger(ctx, log)
+
+	r, err := buffer.Open(ctx)
 	if err != nil {
 		return nil, storeerrors.InternalError{Reason: fmt.Errorf("open msg buffer: %w", err)}
 	}
@@ -132,10 +166,10 @@ func (uc *Usecase) PrepareMessage(
 		return nil, fmt.Errorf("PrepareMessage: %w", err)
 	}
 
-	contextlib.FromContext(ctx).Info("stored message parts",
+	contextlib.Logger(ctx).Info("stored message parts",
 		zap.Stringer("msg_id", msgID),
 		zap.Int("parts_count", len(parts)),
-		zap.Int64("size", size),
+		zap.Int("size", buffer.Len()),
 	)
 
 	return &message.NewMsg{
@@ -150,7 +184,7 @@ func (uc *Usecase) PrepareMessage(
 func (uc *Usecase) RemoveDanglingParts(ctx context.Context, m *message.NewMsg) error {
 	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.RemoveDanglingParts").End()
 
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	for _, p := range m.Parts {
 		log.Debug("deleting nested part",
@@ -203,7 +237,7 @@ func (uc *Usecase) AddMessageToFolder(
 		return nil, fmt.Errorf("create folder entry: %w", err)
 	}
 
-	contextlib.FromContext(ctx).Info("added message to folder",
+	contextlib.Logger(ctx).Info("added message to folder",
 		zap.Stringer("folder_id", targetFolder.ID), zap.Stringer("msg_id", msg.ID),
 		zap.Uint32("imap_uid", entry.IMAPUID), zap.Uint32("size", msg.TotalSize))
 
@@ -217,17 +251,17 @@ func (uc *Usecase) AddMessageToFolder(
 
 func (uc *Usecase) bufferStoreMessage(ctx context.Context, accountID ulid.ULID, modSeq folder.ModSeq, date time.Time, flags []string, size int64, mime io.Reader) (*message.Msg, error) {
 	msgID := ulid.Make()
-	log := contextlib.FromContext(ctx).With(zap.Stringer("message_id", msgID))
+	log := contextlib.Logger(ctx).With(zap.Stringer("message_id", msgID))
 	ctx = contextlib.WithLogger(ctx, log)
 
 	buff, err := uc.tempBuffer(ctx, accountID, size, mime)
 	if err != nil {
 		return nil, fmt.Errorf("buffer msg: %w", err)
 	}
-	defer func(buff buffer) {
+	defer func(buff Buffer) {
 		err := buff.Close()
 		if err != nil {
-			log.Error("failed to delete temporary buffer", zap.Error(err), zap.String("key", buff.storeKey))
+			log.Error("failed to delete temporary buffer", zap.Error(err))
 		}
 	}(buff)
 
@@ -240,7 +274,7 @@ func (uc *Usecase) bufferStoreMessage(ctx context.Context, accountID ulid.ULID, 
 	bufR := bufio.NewReader(r)
 	parts, err := uc.storeParts(ctx, accountID, msgID, bufR)
 	if err != nil {
-		log.Error("failed to store as message tree, will try storing as raw", zap.Error(err), zap.String("key", buff.storeKey))
+		log.Error("failed to store as message tree, will try storing as raw", zap.Error(err))
 		part, err := uc.storeRawPart(ctx, accountID, msgID, buff)
 		if err != nil {
 			return nil, fmt.Errorf("store raw part: %w", err)
@@ -269,9 +303,9 @@ func (uc *Usecase) bufferStoreMessage(ctx context.Context, accountID ulid.ULID, 
 
 func (uc *Usecase) storeRawPart(
 	ctx context.Context, accountID ulid.ULID,
-	msgID ulid.ULID, tempBuf buffer,
+	msgID ulid.ULID, tempBuf Buffer,
 ) (part *message.NewPart, err error) {
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	var inline []byte
 	var blobID string
@@ -319,7 +353,7 @@ func (uc *Usecase) storeRawPart(
 }
 
 func (uc *Usecase) storeParts(ctx context.Context, accountID ulid.ULID, msgID ulid.ULID, reader *bufio.Reader) ([]message.NewPart, error) {
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	header, err := textproto.ReadHeader(reader)
 	if err != nil {
@@ -341,7 +375,7 @@ func (uc *Usecase) storeParts(ctx context.Context, accountID ulid.ULID, msgID ul
 }
 
 func (uc *Usecase) storeMessage(ctx context.Context, accountID ulid.ULID, modSeq folder.ModSeq, msgID ulid.ULID, date time.Time, flags []string, reader *bufio.Reader) (msg *message.Msg, err error) {
-	log := contextlib.FromContext(ctx)
+	log := contextlib.Logger(ctx)
 
 	parts, err := uc.storeParts(ctx, accountID, msgID, reader)
 
