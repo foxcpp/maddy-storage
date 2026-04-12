@@ -27,6 +27,39 @@ type DeletedMsg struct {
 	PreviouslyDeleted bool
 }
 
+func (uc *Usecase) DeleteByIDs(
+	ctx context.Context, accountID, folderID ulid.ULID,
+	msgIDs []ulid.ULID,
+) ([]DeletedMsg, error) {
+	deleted := make([]DeletedMsg, 0, len(msgIDs))
+
+	delModSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("modseq: %w", err)
+	}
+
+	deletedEnts, err := uc.folderRepo.DeleteEntryByIDs(ctx, folderID, msgIDs, delModSeq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete %d entries from folder %v: %w", len(msgIDs), folderID, err)
+	}
+	for _, ent := range deletedEnts {
+		deleted = append(deleted, DeletedMsg{
+			MsgID:             ent.MsgID,
+			SeqNum:            ent.SeqNum, // XXX: Not populated by DeleteEntryByIDs
+			UID:               ent.IMAPUID,
+			PreviouslyDeleted: false,
+		})
+	}
+	contextlib.Logger(ctx).Info("messages soft-deleted",
+		zap.Stringer("folder_id", folderID),
+		zap.Stringer("account_id", accountID),
+		zap.Uint64("modseq", uint64(delModSeq)),
+		zap.Int("count", len(deletedEnts)),
+	)
+
+	return deleted, nil
+}
+
 func (uc *Usecase) Delete(
 	ctx context.Context, accountID, folderID ulid.ULID,
 	flagged bool, ranges folder.Range, returnSeq bool,
@@ -71,29 +104,19 @@ func (uc *Usecase) Delete(
 		return deleted, nil
 	}
 
-	delModSeq, err := uc.imapRepo.NextModSeq(ctx, accountID)
+	ents, err := uc.DeleteByIDs(ctx, accountID, folderID, delIDs)
 	if err != nil {
-		return nil, fmt.Errorf("modseq: %w", err)
+		return nil, fmt.Errorf("delete by ids: %w", err)
 	}
 
-	deletedEnts, err := uc.folderRepo.DeleteEntryByIDs(ctx, folderID, delIDs, delModSeq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete %d entries from folder %v: %w", len(delIDs), folderID, err)
-	}
-	for _, ent := range deletedEnts {
+	for _, ent := range ents {
 		deleted = append(deleted, DeletedMsg{
 			MsgID:             ent.MsgID,
-			SeqNum:            seqByUID[ent.IMAPUID], // its kinda expensive to calculate seqnums twice
-			UID:               ent.IMAPUID,
+			SeqNum:            seqByUID[ent.UID], // it's kinda expensive to calculate seqnums twice
+			UID:               ent.UID,
 			PreviouslyDeleted: false,
 		})
 	}
-	contextlib.Logger(ctx).Info("messages soft-deleted",
-		zap.Stringer("folder_id", folderID),
-		zap.Stringer("account_id", accountID),
-		zap.Uint64("modseq", uint64(delModSeq)),
-		zap.Int("count", len(deletedEnts)),
-	)
 
 	return deleted, nil
 }

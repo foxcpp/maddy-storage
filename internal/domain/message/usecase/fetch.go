@@ -36,6 +36,19 @@ func (p PartSpecifier) Includes(other PartSpecifier) bool {
 	return p&other != 0
 }
 
+func (uc *Usecase) FetchByIDs(ctx context.Context,
+	ids []ulid.ULID,
+) ([]message.Msg, error) {
+	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.FetchByIDs").End()
+
+	msgs, err := uc.msgRepo.GetByIDs(ctx, folder.ModSeq(0), ids...)
+	if err != nil {
+		return nil, fmt.Errorf("GetByIDs: %w", err)
+	}
+
+	return msgs, nil
+}
+
 func (uc *Usecase) Fetch(ctx context.Context,
 	accountID, folderID ulid.ULID,
 	ids folder.Range, modSeqGt folder.ModSeq, returnSeq bool,

@@ -148,6 +148,7 @@ type Repo interface {
 
 	CountEntryByRange(ctx context.Context, folderID ulid.ULID, ranges Range) (int, error)
 	GetEntryByRange(ctx context.Context, folderID ulid.ULID, ranges Range, returnSeq bool) ([]Entry, error)
+	GetEntryByIDs(ctx context.Context, folderID ulid.ULID, msgIDs []ulid.ULID) ([]Entry, error)
 	CreateEntry(ctx context.Context, entry ...Entry) error
 	ReplaceEntries(ctx context.Context, old []Entry, new []Entry, modSeq ModSeq) error
 	DeleteEntryByIDs(ctx context.Context, folderID ulid.ULID, ids []ulid.ULID, modSeq ModSeq) ([]Entry, error)

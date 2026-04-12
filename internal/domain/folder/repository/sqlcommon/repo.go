@@ -619,6 +619,30 @@ func (r repo) GetEntryByRange(ctx context.Context, folderID ulid.ULID, ranges fo
 	return models, nil
 }
 
+func (r repo) GetEntryByIDs(ctx context.Context, folderID ulid.ULID, msgIDs []ulid.ULID) ([]folder.Entry, error) {
+	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.GetEntryByIDs").End()
+
+	var entries []entryDTO
+
+	q := r.db.Gorm(ctx).
+		Select("folder_entries.*").
+		Table("folder_entries").
+		Where("folder_entries.folder_id = ?", folderID).
+		Where("folder_entries.msg_id IN (?)", msgIDs).
+		Where("folder_entries.deleted_at IS NULL")
+
+	err := q.Find(&entries).Error
+	if err != nil {
+		return nil, fmt.Errorf("find: %w", err)
+	}
+
+	models := make([]folder.Entry, 0, len(entries))
+	for _, ent := range entries {
+		models = append(models, *entryAsModel(&ent))
+	}
+	return models, nil
+}
+
 func (r repo) CountEntryByRange(ctx context.Context, folderID ulid.ULID, ranges folder.Range) (int, error) {
 	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlcommon.CountEntryByRange").End()
 
