@@ -268,6 +268,8 @@ func (s *Searcher) searchAggregated(ctx context.Context, tx *gorm.DB, accountID 
 		}
 		q = q.Where("folder_entries.modseq <= ?", opts.At).
 			Where("(folder_entries.deleted_at IS NULL OR (folder_entries.deleted_at IS NOT NULL AND folder_entries.modseq > ?))", opts.DeletesAt)
+	} else {
+		q = q.Where("folder_entries.deleted_at IS NULL")
 	}
 
 	q = q.Where("folders.account_id = ?", accountID)
@@ -352,6 +354,8 @@ func (s *Searcher) searchAll(ctx context.Context, tx *gorm.DB, accountID ulid.UL
 		}
 		q = q.Where("folder_entries.created_at_modseq <= ?", opts.At).
 			Where("(folder_entries.deleted_at IS NULL OR (folder_entries.deleted_at IS NOT NULL AND folder_entries.modseq > ?))", opts.DeletesAt)
+	} else {
+		q = q.Where("folder_entries.deleted_at IS NULL")
 	}
 
 	q = q.Where("folders.account_id = ?", accountID)

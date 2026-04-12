@@ -208,9 +208,7 @@ func (m ManagedStorage) ListMessages(ctx context.Context, accountName, folderPat
 		return nil, err
 	}
 
-	visible := filterVisibleFoundMessages(found.All)
-
-	entries, err := paginate(visible, limit, offset)
+	entries, err := paginate(found.All, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -340,6 +338,8 @@ func (m ManagedStorage) RemoveFlag(ctx context.Context, accountName, folderPath 
 		return err
 	}
 
+	// This solely checks folderPath correctness as we don't need any folder information
+	// to modify message flags. But we check it anyway to catch API misue.
 	if _, err := m.findMessagesInFolder(ctx, acct.ID, fold.ID, msgIDs); err != nil {
 		return err
 	}
@@ -358,6 +358,8 @@ func (m ManagedStorage) AddFlag(ctx context.Context, accountName, folderPath str
 		return err
 	}
 
+	// This solely checks folderPath correctness as we don't need any folder information
+	// to modify message flags. But we check it anyway to catch API misue.
 	if _, err := m.findMessagesInFolder(ctx, acct.ID, fold.ID, msgIDs); err != nil {
 		return err
 	}
@@ -366,18 +368,9 @@ func (m ManagedStorage) AddFlag(ctx context.Context, accountName, folderPath str
 }
 
 func (m ManagedStorage) DumpMessage(ctx context.Context, accountName, folderPath string, id string) (io.ReadCloser, error) {
-	acct, fold, err := m.resolveAccountFolder(ctx, accountName, folderPath)
-	if err != nil {
-		return nil, err
-	}
-
 	msgID, err := ulid.Parse(id)
 	if err != nil {
 		return nil, fmt.Errorf("parse message id %q: %w", id, err)
-	}
-
-	if _, err := m.findMessagesInFolder(ctx, acct.ID, fold.ID, []ulid.ULID{msgID}); err != nil {
-		return nil, err
 	}
 
 	msgs, err := m.message.FetchByIDs(ctx, []ulid.ULID{msgID})
@@ -515,7 +508,7 @@ func (m ManagedStorage) findMessagesInFolder(ctx context.Context, accountID, fol
 	}
 
 	byID := make(map[ulid.ULID]searcher.FoundMsg, len(found.All))
-	for _, foundMsg := range filterVisibleFoundMessages(found.All) {
+	for _, foundMsg := range found.All {
 		byID[foundMsg.MessageID] = foundMsg
 	}
 
@@ -526,16 +519,6 @@ func (m ManagedStorage) findMessagesInFolder(ctx context.Context, accountID, fol
 	}
 
 	return byID, nil
-}
-
-func filterVisibleFoundMessages(found []searcher.FoundMsg) []searcher.FoundMsg {
-	visible := make([]searcher.FoundMsg, 0, len(found))
-	for _, foundMsg := range found {
-		if foundMsg.DeletedAt.IsZero() {
-			visible = append(visible, foundMsg)
-		}
-	}
-	return visible
 }
 
 func (m ManagedStorage) fetchMessageDTOs(ctx context.Context, ids []ulid.ULID) ([]MessageDTO, error) {
