@@ -6,6 +6,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"go.uber.org/zap"
@@ -129,6 +130,8 @@ func (s *session) Search(kind imapserver.NumKind, criteria *imap.SearchCriteria,
 	if hasModSeq && !s.mbox.CondStoreActive {
 		s.mbox.CondStoreActive = true
 	}
+
+	ctx = recent.WithSet(ctx, s.mbox.Recents)
 
 	result, err := s.b.messages.Search(ctx, s.accountID, s.mbox.FolderID, cond, searcher.Opts{
 		ReturnAll:     options.ReturnAll || (options.ReturnCount && options.ReturnSave),

@@ -12,6 +12,7 @@ import (
 
 	"github.com/emersion/go-message/mail"
 	"github.com/emersion/go-message/textproto"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/pkg/mimeutils"
@@ -107,7 +108,7 @@ func Match(ctx context.Context, ent *FoundMsg, m *message.Msg, openPart FuncOpen
 		return false, nil
 	}
 
-	if !matchFlags(m, cond.Flag, cond.NoFlag) {
+	if !matchFlags(ctx, m, ent, cond.Flag, cond.NoFlag) {
 		return false, nil
 	}
 	for _, not := range cond.Not {
@@ -156,18 +157,39 @@ func Match(ctx context.Context, ent *FoundMsg, m *message.Msg, openPart FuncOpen
 	return true, nil
 }
 
-func matchFlags(m *message.Msg, flag, noFlag []string) bool {
+func matchFlags(ctx context.Context, m *message.Msg, ent *FoundMsg, flag, noFlag []string) bool {
 	flagMap := make(map[string]struct{}, len(m.Flags))
 	for _, f := range m.Flags {
 		flagMap[strings.ToLower(f)] = struct{}{}
 	}
 
+	recentSet, hasRecents := recent.SetFromContext(ctx)
+
 	for _, f := range flag {
+		if strings.EqualFold(f, recent.FlagString) {
+			if !hasRecents {
+				return false
+			}
+			if !recentSet.Contains(ent.UID) {
+				return false
+			}
+			continue
+		}
+
 		if _, ok := flagMap[strings.ToLower(f)]; !ok {
 			return false
 		}
 	}
 	for _, f := range noFlag {
+		if strings.EqualFold(f, recent.FlagString) {
+			if !hasRecents {
+				continue
+			}
+			if recentSet.Contains(ent.UID) {
+				return false
+			}
+		}
+
 		if _, ok := flagMap[strings.ToLower(f)]; ok {
 			return false
 		}

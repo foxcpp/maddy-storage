@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
@@ -94,24 +95,45 @@ func (s *Searcher) addConditions(ctx context.Context, q *gorm.DB, filter *search
 		q = q.Where("messages.size < ?", filter.SizeLt)
 	}
 	if filter.Flag != nil {
-		for i := range filter.Flag {
-			filter.Flag[i] = strings.ToLower(filter.Flag[i])
+		hasRecent, otherFlags := recent.FilterRecentFlag(filter.Flag)
+		for i := range otherFlags {
+			otherFlags[i] = strings.ToLower(otherFlags[i])
 		}
-		q = q.Where(`EXISTS(
-			SELECT * FROM message_flags 
-			WHERE message_flags.message_id = messages.id
-			AND lower(message_flags.flag) IN (?)
-			GROUP BY message_flags.message_id
-			HAVING count(*) = ?)`, filter.Flag, len(filter.Flag))
+		if len(otherFlags) > 0 {
+			q = q.Where(`EXISTS(
+				SELECT * FROM message_flags 
+				WHERE message_flags.message_id = messages.id
+				AND lower(message_flags.flag) IN (?)
+				GROUP BY message_flags.message_id
+				HAVING count(*) = ?)`, otherFlags, len(otherFlags))
+		}
+		if hasRecent {
+			recentSet, ok := recent.SetFromContext(ctx)
+			if ok && !recentSet.Empty() {
+				q = q.Where(`folder_entries.uid IN (?)`, recentSet.AsIMAPUIDList())
+			} else {
+				// No recent messages, so condition is always false.
+				q = q.Where("1 = 0")
+			}
+		}
 	}
 	if filter.NoFlag != nil {
-		for i := range filter.NoFlag {
-			filter.NoFlag[i] = strings.ToLower(filter.NoFlag[i])
+		hasRecent, otherFlags := recent.FilterRecentFlag(filter.NoFlag)
+		for i := range otherFlags {
+			otherFlags[i] = strings.ToLower(otherFlags[i])
 		}
-		q = q.Where(`NOT EXISTS(
-			SELECT * FROM message_flags 
-			WHERE message_flags.message_id = messages.id
-			AND lower(message_flags.flag) IN (?))`, filter.NoFlag)
+		if len(otherFlags) > 0 {
+			q = q.Where(`NOT EXISTS(
+				SELECT * FROM message_flags 
+				WHERE message_flags.message_id = messages.id
+				AND lower(message_flags.flag) IN (?))`, otherFlags)
+		}
+		if hasRecent {
+			recentSet, ok := recent.SetFromContext(ctx)
+			if ok && !recentSet.Empty() {
+				q = q.Where(`folder_entries.uid NOT IN (?)`, recentSet.AsIMAPUIDList())
+			}
+		}
 	}
 	if filter.Not != nil {
 		for _, not := range filter.Not {
