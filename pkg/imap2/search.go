@@ -70,7 +70,7 @@ func (s *session) criteriaAsSearcherCond(criteria *imap.SearchCriteria) (cond *s
 	cond.SizeGt = uint32(criteria.Larger)
 	cond.SizeLt = uint32(criteria.Smaller)
 
-	if cond.Not != nil {
+	if criteria.Not != nil {
 		cond.Not = make([]*searcher.Cond, len(criteria.Not))
 		for i, not := range criteria.Not {
 			var hasModSeqNot bool
@@ -81,10 +81,11 @@ func (s *session) criteriaAsSearcherCond(criteria *imap.SearchCriteria) (cond *s
 			hasModSeq = hasModSeq || hasModSeqNot
 		}
 	}
-	if cond.Or != nil {
+	if criteria.Or != nil {
 		cond.Or = make([][]*searcher.Cond, len(criteria.Or))
 		for i, or := range criteria.Or {
 			var hasModSeqOr bool
+			cond.Or[i] = make([]*searcher.Cond, 2)
 
 			cond.Or[i][0], hasModSeqOr, err = s.criteriaAsSearcherCond(&or[0])
 			if err != nil {

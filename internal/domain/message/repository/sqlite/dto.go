@@ -55,6 +55,7 @@ func asDTO(model *message.Msg) (*msgDTO, []msgFlagDTO, []msgPartDTO, error) {
 
 	msgDto := &msgDTO{
 		ID:              model.ID,
+		ReceivedAt:      model.ReceivedAt,
 		CreatedAtModSeq: uint64(model.CreatedAtModSeq),
 		ModSeq:          uint64(model.ModSeq),
 		TotalSize:       model.TotalSize,

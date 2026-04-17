@@ -25,6 +25,18 @@ func timeInRange(val time.Time, gt, lt time.Time, dateOnly bool) bool {
 		gt = time.Date(gt.Year(), gt.Month(), gt.Day(), 0, 0, 0, 0, time.UTC)
 		lt = time.Date(lt.Year(), lt.Month(), lt.Day(), 0, 0, 0, 0, time.UTC)
 		val = time.Date(val.Year(), val.Month(), val.Day(), 0, 0, 0, 0, time.UTC)
+
+		if gt.IsZero() && lt.IsZero() {
+			return true
+		}
+		if gt.IsZero() {
+			return val.Before(lt)
+		}
+		if lt.IsZero() {
+			return !val.Before(gt)
+		}
+
+		return !val.Before(gt) && val.Before(lt)
 	}
 
 	if gt.IsZero() && lt.IsZero() {
@@ -79,10 +91,10 @@ func Match(ctx context.Context, ent *FoundMsg, m *message.Msg, openPart FuncOpen
 			}
 		}
 	}
-	if !timeInRange(m.ReceivedAt, cond.SentAfter, cond.SentBefore, cond.SentDateOnly) {
+	if !timeInRange(sentDateForSort(m), cond.SentAfter, cond.SentBefore, cond.SentDateOnly) {
 		return false, nil
 	}
-	if !timeInRange(m.CreatedAt, cond.ReceivedAfter, cond.ReceivedBefore, cond.ReceivedDateOnly) {
+	if !timeInRange(m.ReceivedAt, cond.ReceivedAfter, cond.ReceivedBefore, cond.ReceivedDateOnly) {
 		return false, nil
 	}
 	if !timeInRange(m.UpdatedAt, cond.UpdatedGt, cond.UpdatedLt, false) {

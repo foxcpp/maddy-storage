@@ -24,6 +24,12 @@ type Searcher struct {
 	db  sqlcommon.DB
 }
 
+// TODO: This is SQLite specific, will need updates to support PostgreSQL.
+const (
+	sentDateOnlyExpr  = "COALESCE(NULLIF(substr(json_extract(messages.content, '$.envelope.date'), 1, 10), '0001-01-01'), substr(messages.received_at, 1, 10))"
+	sentTimestampExpr = "COALESCE(NULLIF(json_extract(messages.content, '$.envelope.date'), '0001-01-01T00:00:00Z'), messages.received_at)"
+)
+
 func New(db sqlcommon.DB, cfg Cfg) *Searcher {
 	return &Searcher{
 		cfg: cfg,
@@ -42,37 +48,37 @@ func (s *Searcher) addConditions(ctx context.Context, q *gorm.DB, filter *search
 
 	if filter.NumericIDs != nil {
 		for _, rang := range filter.NumericIDs {
-			s.addRangeConds(ctx, q, rang)
+			q = s.addRangeConds(ctx, q, rang)
 		}
 	}
 	if filter.SentDateOnly {
 		if !filter.SentAfter.IsZero() {
-			q = q.Where("date(messages.received_at) > date(?)", filter.SentAfter)
+			q = q.Where(sentDateOnlyExpr+" >= ?", filter.SentAfter.Format(time.DateOnly))
 		}
 		if !filter.SentBefore.IsZero() {
-			q = q.Where("date(messages.received_at) < date(?)", filter.SentBefore)
+			q = q.Where(sentDateOnlyExpr+" < ?", filter.SentBefore.Format(time.DateOnly))
 		}
 	} else {
 		if !filter.SentAfter.IsZero() {
-			q = q.Where("messages.received_at > ?", filter.SentAfter)
+			q = q.Where("unixepoch("+sentTimestampExpr+") > unixepoch(?)", filter.SentAfter)
 		}
 		if !filter.SentBefore.IsZero() {
-			q = q.Where("messages.received_at < ?", filter.SentBefore)
+			q = q.Where("unixepoch("+sentTimestampExpr+") < unixepoch(?)", filter.SentBefore)
 		}
 	}
 	if filter.ReceivedDateOnly {
 		if !filter.ReceivedAfter.IsZero() {
-			q = q.Where("date(messages.created_at) > date(?)", filter.ReceivedAfter)
+			q = q.Where("date(messages.received_at) >= date(?)", filter.ReceivedAfter)
 		}
 		if !filter.ReceivedBefore.IsZero() {
-			q = q.Where("date(messages.created_at) < date(?)", filter.ReceivedBefore)
+			q = q.Where("date(messages.received_at) < date(?)", filter.ReceivedBefore)
 		}
 	} else {
 		if !filter.ReceivedAfter.IsZero() {
-			q = q.Where("messages.created_at > ?", filter.ReceivedAfter)
+			q = q.Where("messages.received_at > ?", filter.ReceivedAfter)
 		}
 		if !filter.ReceivedBefore.IsZero() {
-			q = q.Where("messages.created_at < ?", filter.ReceivedBefore)
+			q = q.Where("messages.received_at < ?", filter.ReceivedBefore)
 		}
 	}
 	if !filter.UpdatedGt.IsZero() {
@@ -165,19 +171,29 @@ func joinSeqNum(q *gorm.DB, at, deletesAt folder.ModSeq, folders ...ulid.ULID) *
 
 func (s *Searcher) addRangeConds(ctx context.Context, q *gorm.DB, rang folder.Range) *gorm.DB {
 	or := s.db.Gorm(ctx)
+	addCond := func(query string, args ...any) {
+		if or.Statement == nil || len(or.Statement.Clauses) == 0 {
+			or = or.Where(query, args...)
+			return
+		}
+		or = or.Or(query, args...)
+	}
 	if rang.Values != nil {
 		if rang.SeqNum {
-			or.Or("seqnums.seq IN (?)", rang.Values)
+			addCond("seqnums.seq IN (?)", rang.Values)
 		} else {
-			or.Or("folder_entries.uid IN (?)", rang.Values)
+			addCond("folder_entries.uid IN (?)", rang.Values)
 		}
 	}
 	for _, inter := range rang.Intervals {
 		if rang.SeqNum {
-			or.Or("seqnums.seq BETWEEN ? AND ?", inter.Since, inter.Until)
+			addCond("seqnums.seq BETWEEN ? AND ?", inter.Since, inter.Until)
 		} else {
-			or.Or("folder_entries.uid BETWEEN ? AND ?", inter.Since, inter.Until)
+			addCond("folder_entries.uid BETWEEN ? AND ?", inter.Since, inter.Until)
 		}
+	}
+	if or.Statement == nil || len(or.Statement.Clauses) == 0 {
+		return q
 	}
 	return q.Where(or)
 }
