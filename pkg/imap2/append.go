@@ -1,6 +1,7 @@
 package imap2
 
 import (
+	"math"
 	"runtime/trace"
 
 	"github.com/emersion/go-imap/v2"
@@ -17,6 +18,15 @@ func (s *session) Append(mailbox string, r imap.LiteralReader, options *imap.App
 			Type: imap.StatusResponseTypeNo,
 			Code: imap.ResponseCodeClientBug,
 			Text: "Cannot APPEND in a read-only mailbox",
+		}
+	}
+
+	appendLimit := s.AppendLimit()
+	if appendLimit != 0 && (r.Size() > math.MaxUint32 || uint32(r.Size()) >= appendLimit) {
+		return nil, &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: imap.ResponseCodeLimit,
+			Text: "APPENDLIMIT exceeded",
 		}
 	}
 
