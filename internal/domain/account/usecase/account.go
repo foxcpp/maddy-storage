@@ -134,19 +134,16 @@ func (a Account) AccountNamespace(ctx context.Context, id ulid.ULID) (folder.Nam
 	return acct.Namespace, nil
 }
 
-func (a Account) AuthPlain(ctx context.Context, username, password string) (ulid.ULID, error) {
+func (a Account) AuthPlain(ctx context.Context, username, password string) (*account.Account, error) {
 	authzUsername, err := a.auth.Login(ctx, username, password)
 	if err != nil {
-		return ulid.ULID{}, err
+		return nil, err
 	}
 
 	acct, err := a.repo.GetByName(ctx, authzUsername)
 	if err != nil {
-		if errors.Is(err, account.ErrNotFound) {
-			return ulid.ULID{}, ErrInvalidCredentials
-		}
-		return ulid.ULID{}, err
+		return nil, err
 	}
 
-	return acct.ID, nil
+	return acct, nil
 }

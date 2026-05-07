@@ -106,7 +106,7 @@ func TestDeliverySimple(t *testing.T) {
 	d.SetFlags([]string{"custom_flag"})
 	require.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{}))
 	require.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{}))
-	require.NoError(t, d.SelectFolders(ctx, folder.RoleInbox))
+	require.NoError(t, d.SelectFolders(ctx, folder.RoleInbox, nil))
 	require.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
 	require.NoError(t, d.Commit(ctx))
 
@@ -142,6 +142,76 @@ func TestDeliverySimple(t *testing.T) {
 }
 
 func TestDeliveryRole(t *testing.T) {
+	ctx := contextlib.WithLogger(context.Background(), zaptest.NewLogger(t))
+
+	c, _ := initTestContainer(t)
+
+	acct1, err := c.acct.Create(ctx, "test_account1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.folder.Create(ctx, acct1.ID, "Spam", folder.RoleJunk, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	acct2, err := c.acct.Create(ctx, "test_account2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := c.StartDelivery(ctx, "DELIVERY_ID")
+	require.NoError(t, err, "StartDelivery failed")
+
+	d.SetFlags([]string{"custom_flag"})
+	require.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{}))
+	require.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{}))
+	require.NoError(t, d.SelectFolders(ctx, folder.RoleJunk))
+	require.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
+	require.NoError(t, d.Commit(ctx))
+
+	assert.NoError(t, d.Close(ctx), "Close after Commit must not fail")
+
+	checkMsg := func(acct *account.Account, foldData *messageusecase.FolderInfo) {
+		msg, err := c.msg.Fetch(ctx, acct.ID, foldData.Folder.ID, folder.Range{
+			Values: []uint32{foldData.MaxUID},
+		}, folder.ModSeq(0), false)
+		require.NoError(t, err)
+		assert.NotNil(t, msg)
+		assert.Len(t, msg, 1)
+
+		assert.Equal(t, msg[0].Msg.Flags, []string{"custom_flag"})
+		assert.Equal(t, msg[0].Msg.Meta["delivery_id"], "DELIVERY_ID")
+
+		var buf bytes.Buffer
+		require.NoError(t, c.msg.WritePart(
+			ctx, &msg[0].Msg, msg[0].Msg.Parts[0].Path,
+			&buf, messageusecase.WriteOptions{
+				Specifier: messageusecase.PartDefault,
+			},
+		))
+		assert.Equal(t, buf.String(), testMessageNoCT)
+	}
+
+	fold1Data, err := c.msg.FetchFolderInfo(ctx, acct1.ID, "Spam", messageusecase.InfoOpts{
+		ReturnMaxUID: true,
+		CountMsgs:    true,
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, fold1Data.Msgs, 1)
+	checkMsg(acct1, &fold1Data)
+
+	// No RoleJunk folder available, fallback to Inbox.
+	fold2Data, err := c.msg.FetchFolderInfo(ctx, acct2.ID, folder.FolderINBOX, messageusecase.InfoOpts{
+		ReturnMaxUID: true,
+		CountMsgs:    true,
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, fold2Data.Msgs, 1)
+	checkMsg(acct2, &fold2Data)
+}
+
+func TestDeliveryRcptOverride(t *testing.T) {
 	ctx := contextlib.WithLogger(context.Background(), zaptest.NewLogger(t))
 
 	c, _ := initTestContainer(t)

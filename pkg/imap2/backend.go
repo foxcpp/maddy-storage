@@ -20,6 +20,10 @@ type Config struct {
 
 	TLS          *tls.Config
 	InsecureAuth bool
+
+	// If SetAccountID is used or authentication is successful - create
+	// account if it does not exist yet.
+	AutoCreateAccounts bool
 }
 
 type Backend struct {

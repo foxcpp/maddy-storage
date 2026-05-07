@@ -23,6 +23,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/pkg/delivery"
 	"github.com/foxcpp/maddy-storage/pkg/imap2"
+	"github.com/foxcpp/maddy-storage/pkg/managed"
 	"go.uber.org/zap"
 )
 
@@ -136,4 +137,8 @@ func (c Container) Delivery(cfg delivery.Config, logger *zap.Logger) *delivery.C
 		c.Accounts, c.Folders,
 		c.Message,
 	)
+}
+
+func (c Container) Manager() *managed.Container {
+	return managed.New(&c.Accounts, &c.Folders, &c.Message)
 }

@@ -9,6 +9,7 @@ import (
 	"runtime/trace"
 	"time"
 
+	"github.com/emersion/go-message/textproto"
 	"github.com/foxcpp/maddy-storage/internal/domain/account"
 	accountusecase "github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
@@ -134,6 +135,29 @@ func (d *Delivery) PrepareBodyBuffered(ctx context.Context, buffer messageusecas
 	return nil
 }
 
+func (d *Delivery) PrepareBodyWithParsedHeader(ctx context.Context, hdr textproto.Header, bodyBuffer messageusecase.Buffer) error {
+	ctx, task := trace.NewTask(ctx, "maddy-storage/delivery.PrepareBodyWithParsedHeader")
+	defer task.End()
+	ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{
+		"delivery_id": d.id,
+	})
+	ctx = contextlib.WithLogger(ctx, d.c.logger)
+
+	if len(d.rcpts) == 0 {
+		return fmt.Errorf("need at least one recipient selected for PrepareBody")
+	}
+
+	var err error
+	d.msg, err = d.c.msg.PrepareMessageBodyBuffered(
+		ctx, d.rcpts[0].acct.ID, time.Now(),
+		d.flags, hdr, bodyBuffer,
+	)
+	if err != nil {
+		return fmt.Errorf("PrepareMessage: %w", err)
+	}
+	return nil
+}
+
 func (d *Delivery) PrepareBody(ctx context.Context, size int64, r io.Reader) error {
 	ctx, task := trace.NewTask(ctx, "maddy-storage/delivery.PrepareBody")
 	defer task.End()
@@ -157,7 +181,26 @@ func (d *Delivery) PrepareBody(ctx context.Context, size int64, r io.Reader) err
 	return nil
 }
 
-func (d *Delivery) SelectFolders(ctx context.Context, preferredRole folder.Role) error {
+type Role = folder.Role
+
+const (
+	RoleNone      = folder.RoleNone
+	RoleArchive   = folder.RoleArchive
+	RoleDrafts    = folder.RoleDrafts
+	RoleImportant = folder.RoleImportant
+	RoleInbox     = folder.RoleInbox
+	RoleJunk      = folder.RoleJunk
+	RoleSent      = folder.RoleSent
+	RoleTrash     = folder.RoleTrash
+)
+
+type RcptOverride struct {
+	FolderRole folder.Role
+	FolderName string
+	Flags      []string
+}
+
+func (d *Delivery) SelectFolders(ctx context.Context, preferredRole folder.Role, overrides map[string]RcptOverride) error {
 	ctx, task := trace.NewTask(ctx, "maddy-storage/delivery.SelectFolders")
 	defer task.End()
 	ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{

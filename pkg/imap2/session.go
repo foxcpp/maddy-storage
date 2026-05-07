@@ -140,9 +140,10 @@ type session struct {
 	c   *imapserver.Conn
 	sid ulid.ULID
 
-	accountID   ulid.ULID
-	mbox        selectedMbox
-	enabledCaps imap.CapSet // populated after first select
+	accountID     ulid.ULID
+	rootNamespace *folder.Namespace
+	mbox          selectedMbox
+	enabledCaps   imap.CapSet // populated after first select
 
 	log           *zap.Logger
 	ctx           context.Context
@@ -150,21 +151,26 @@ type session struct {
 	sessionTask   *trace.Task
 }
 
-func (s *session) Unauthenticate() error {
-	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Unauthenticate")
-	defer task.End()
-
+func (s *session) UnsetAccountID(ctx context.Context) error {
 	if s.mbox.isOpen() {
 		if err := s.unselect(ctx); err != nil {
 			return err
 		}
 	}
 	s.accountID = ulid.ULID{}
+	s.rootNamespace = nil
 	s.log.Debug("unauthenticated")
 	s.ctx = contextlib.WithAdditionalMeta(ctx, map[string]string{
 		"authz_username": "",
 	})
 	return nil
+}
+
+func (s *session) Unauthenticate() error {
+	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Unauthenticate")
+	defer task.End()
+
+	return s.UnsetAccountID(ctx)
 }
 
 func (s *session) Namespace() (*imap.NamespaceData, error) {
@@ -185,12 +191,19 @@ func (s *session) Login(username, password string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Login")
 	defer task.End()
 
-	authzULID, err := s.b.accounts.AuthPlain(ctx, username, password)
+	authzAcct, err := s.b.accounts.AuthPlain(ctx, username, password)
 	if err != nil {
-		if errors.Is(err, accountusecase.ErrInvalidCredentials) {
+		if errors.Is(err, accountusecase.ErrInvalidCredentials) ||
+			errors.Is(err, account.ErrNotFound) {
+
+			if errors.Is(err, account.ErrNotFound) {
+				return s.autoCreateLogin(ctx, username)
+			}
+
 			s.log.Info("invalid credentials", zap.String("username", username))
 			return imapserver.ErrAuthFailed
 		}
+
 		s.log.Error("authentication error", zap.Error(err))
 		return &imap.Error{
 			Type: imap.StatusResponseTypeNo,
@@ -198,8 +211,10 @@ func (s *session) Login(username, password string) error {
 			Text: "internal server error, sid: " + s.sid.String(),
 		}
 	}
-	s.log.Info("authenticated", zap.String("sasl_username", username), zap.Stringer("account_id", authzULID))
-	s.accountID = authzULID
+
+	s.log.Info("authenticated", zap.String("sasl_username", username), zap.Stringer("account_id", authzAcct.ID))
+	s.accountID = authzAcct.ID
+	s.rootNamespace = &authzAcct.Namespace
 	return s.SetMetadata(s.ctx, map[string]string{
 		"authz_username": username,
 	})
@@ -210,6 +225,29 @@ func (s *session) SetMetadata(ctx context.Context, md map[string]string) error {
 	return nil
 }
 
+func (s *session) autoCreateLogin(ctx context.Context, username string) error {
+	if !s.b.cfg.AutoCreateAccounts {
+		s.log.Info("no such account", zap.String("username", username))
+		return imapserver.ErrAuthFailed
+	}
+
+	s.log.Info("no such account, will create", zap.String("username", username))
+	acct, err := s.b.accounts.Create(ctx, username)
+	if err != nil {
+		s.log.Error("account auto-create failed", zap.Error(err))
+		return &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: imap.ResponseCodeUnavailable,
+			Text: "internal server error, sid: " + s.sid.String(),
+		}
+	}
+
+	s.log.Info("authenticated", zap.String("username", username), zap.Stringer("account_id", acct.ID))
+	s.accountID = acct.ID
+	s.rootNamespace = &acct.Namespace
+	return nil
+}
+
 func (s *session) SetAccount(ctx context.Context, username string) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.SetAccount")
 	defer task.End()
@@ -217,8 +255,7 @@ func (s *session) SetAccount(ctx context.Context, username string) error {
 	acct, err := s.b.accounts.GetByName(ctx, username)
 	if err != nil {
 		if errors.Is(err, account.ErrNotFound) {
-			s.log.Info("no such account", zap.String("username", username))
-			return imapserver.ErrAuthFailed
+			return s.autoCreateLogin(ctx, username)
 		}
 		s.log.Error("authentication error", zap.Error(err))
 		return &imap.Error{
@@ -228,8 +265,9 @@ func (s *session) SetAccount(ctx context.Context, username string) error {
 		}
 	}
 
-	s.log.Info("authenticated via SetAccount", zap.String("sasl_username", username), zap.Stringer("account_id", acct.ID))
+	s.log.Info("authenticated via SetAccount", zap.String("username", username), zap.Stringer("account_id", acct.ID))
 	s.accountID = acct.ID
+	s.rootNamespace = &acct.Namespace
 
 	return s.SetMetadata(s.ctx, map[string]string{
 		"authz_username": username,
@@ -246,4 +284,12 @@ func (s *session) Close() error {
 		}
 	}
 	return nil
+}
+
+func (s *session) AppendLimit() uint32 {
+	if s.rootNamespace == nil {
+		return 0
+	}
+
+	return s.rootNamespace.AppendLimit
 }

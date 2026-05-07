@@ -44,7 +44,7 @@ type MessageDTO struct {
 	Flags      []string
 }
 
-type ManagedStorage struct {
+type Container struct {
 	accounts *accountusecase.Account
 	folders  *folderusecase.Folder
 	message  *messageusecase.Usecase
@@ -54,15 +54,15 @@ func New(
 	accounts *accountusecase.Account,
 	folders *folderusecase.Folder,
 	message *messageusecase.Usecase,
-) *ManagedStorage {
-	return &ManagedStorage{
+) *Container {
+	return &Container{
 		accounts: accounts,
 		folders:  folders,
 		message:  message,
 	}
 }
 
-func (m ManagedStorage) ListAccounts(ctx context.Context, substring string, limit, offset int) ([]AccountDTO, error) {
+func (m Container) ListAccounts(ctx context.Context, substring string, limit, offset int) ([]AccountDTO, error) {
 	accounts, err := m.accounts.ListAll(ctx)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func (m ManagedStorage) ListAccounts(ctx context.Context, substring string, limi
 	return result, nil
 }
 
-func (m ManagedStorage) CreateAccount(ctx context.Context, name string, options AccountOptions) (AccountDTO, error) {
+func (m Container) CreateAccount(ctx context.Context, name string, options AccountOptions) (AccountDTO, error) {
 	acct, err := m.accounts.Create(ctx, name)
 	if err != nil {
 		return AccountDTO{}, err
@@ -101,12 +101,12 @@ func (m ManagedStorage) CreateAccount(ctx context.Context, name string, options 
 	return accountToDTO(*acct), nil
 }
 
-func (m ManagedStorage) DeleteAccount(ctx context.Context, name string) error {
+func (m Container) DeleteAccount(ctx context.Context, name string) error {
 	_, err := m.accounts.DeleteByName(ctx, name)
 	return err
 }
 
-func (m ManagedStorage) ListFolders(ctx context.Context, accountName string) ([]FolderDTO, error) {
+func (m Container) ListFolders(ctx context.Context, accountName string) ([]FolderDTO, error) {
 	acct, err := m.accounts.GetByName(ctx, accountName)
 	if err != nil {
 		return nil, err
@@ -127,7 +127,7 @@ func (m ManagedStorage) ListFolders(ctx context.Context, accountName string) ([]
 	return result, nil
 }
 
-func (m ManagedStorage) CreateFolder(ctx context.Context, accountName, folderPath string, options FolderOptions) (FolderDTO, error) {
+func (m Container) CreateFolder(ctx context.Context, accountName, folderPath string, options FolderOptions) (FolderDTO, error) {
 	acct, err := m.accounts.GetByName(ctx, accountName)
 	if err != nil {
 		return FolderDTO{}, err
@@ -146,7 +146,7 @@ func (m ManagedStorage) CreateFolder(ctx context.Context, accountName, folderPat
 	return folderToDTO(*created), nil
 }
 
-func (m ManagedStorage) RenameFolder(ctx context.Context, accountName, oldPath, newPath string) error {
+func (m Container) RenameFolder(ctx context.Context, accountName, oldPath, newPath string) error {
 	acct, err := m.accounts.GetByName(ctx, accountName)
 	if err != nil {
 		return err
@@ -156,7 +156,7 @@ func (m ManagedStorage) RenameFolder(ctx context.Context, accountName, oldPath, 
 	return err
 }
 
-func (m ManagedStorage) DeleteFolder(ctx context.Context, accountName, path string) error {
+func (m Container) DeleteFolder(ctx context.Context, accountName, path string) error {
 	acct, err := m.accounts.GetByName(ctx, accountName)
 	if err != nil {
 		return err
@@ -191,7 +191,7 @@ func (m ManagedStorage) DeleteFolder(ctx context.Context, accountName, path stri
 	return nil
 }
 
-func (m ManagedStorage) ListMessages(ctx context.Context, accountName, folderPath string, limit, offset int) ([]MessageDTO, error) {
+func (m Container) ListMessages(ctx context.Context, accountName, folderPath string, limit, offset int) ([]MessageDTO, error) {
 	acct, fold, err := m.resolveAccountFolder(ctx, accountName, folderPath)
 	if err != nil {
 		return nil, err
@@ -221,7 +221,7 @@ func (m ManagedStorage) ListMessages(ctx context.Context, accountName, folderPat
 	return m.fetchMessageDTOs(ctx, ids)
 }
 
-func (m ManagedStorage) AddMessage(ctx context.Context, accountName, folderPath string, date time.Time, r io.Reader) (MessageDTO, error) {
+func (m Container) AddMessage(ctx context.Context, accountName, folderPath string, date time.Time, r io.Reader) (MessageDTO, error) {
 	acct, err := m.accounts.GetByName(ctx, accountName)
 	if err != nil {
 		return MessageDTO{}, err
@@ -240,7 +240,7 @@ func (m ManagedStorage) AddMessage(ctx context.Context, accountName, folderPath 
 	return messageToDTO(*created.Msg), nil
 }
 
-func (m ManagedStorage) CopyMessages(ctx context.Context, accountName, folderPath, toFolderPath string, ids []string) ([]MessageDTO, error) {
+func (m Container) CopyMessages(ctx context.Context, accountName, folderPath, toFolderPath string, ids []string) ([]MessageDTO, error) {
 	acct, fold, err := m.resolveAccountFolder(ctx, accountName, folderPath)
 	if err != nil {
 		return nil, err
@@ -274,7 +274,7 @@ func (m ManagedStorage) CopyMessages(ctx context.Context, accountName, folderPat
 	return m.fetchMessageDTOs(ctx, targetIDs)
 }
 
-func (m ManagedStorage) MoveMessages(ctx context.Context, accountName, folderPath, toFolderPath string, ids []string) ([]MessageDTO, error) {
+func (m Container) MoveMessages(ctx context.Context, accountName, folderPath, toFolderPath string, ids []string) ([]MessageDTO, error) {
 	acct, fold, err := m.resolveAccountFolder(ctx, accountName, folderPath)
 	if err != nil {
 		return nil, err
@@ -308,7 +308,7 @@ func (m ManagedStorage) MoveMessages(ctx context.Context, accountName, folderPat
 	return m.fetchMessageDTOs(ctx, targetIDs)
 }
 
-func (m ManagedStorage) DeleteMessages(ctx context.Context, accountName, folderPath string, ids []string) error {
+func (m Container) DeleteMessages(ctx context.Context, accountName, folderPath string, ids []string) error {
 	acct, fold, err := m.resolveAccountFolder(ctx, accountName, folderPath)
 	if err != nil {
 		return err
@@ -327,7 +327,7 @@ func (m ManagedStorage) DeleteMessages(ctx context.Context, accountName, folderP
 	return err
 }
 
-func (m ManagedStorage) RemoveFlag(ctx context.Context, accountName, folderPath string, ids []string, flag string) error {
+func (m Container) RemoveFlag(ctx context.Context, accountName, folderPath string, ids []string, flag string) error {
 	acct, fold, err := m.resolveAccountFolder(ctx, accountName, folderPath)
 	if err != nil {
 		return err
@@ -347,7 +347,7 @@ func (m ManagedStorage) RemoveFlag(ctx context.Context, accountName, folderPath 
 	return m.message.DeleteFlagsByIDs(ctx, acct.ID, msgIDs, []string{flag})
 }
 
-func (m ManagedStorage) AddFlag(ctx context.Context, accountName, folderPath string, ids []string, flag string) error {
+func (m Container) AddFlag(ctx context.Context, accountName, folderPath string, ids []string, flag string) error {
 	acct, fold, err := m.resolveAccountFolder(ctx, accountName, folderPath)
 	if err != nil {
 		return err
@@ -367,7 +367,7 @@ func (m ManagedStorage) AddFlag(ctx context.Context, accountName, folderPath str
 	return m.message.AddFlagsByIDs(ctx, acct.ID, msgIDs, []string{flag})
 }
 
-func (m ManagedStorage) DumpMessage(ctx context.Context, accountName, folderPath string, id string) (io.ReadCloser, error) {
+func (m Container) DumpMessage(ctx context.Context, accountName, folderPath string, id string) (io.ReadCloser, error) {
 	msgID, err := ulid.Parse(id)
 	if err != nil {
 		return nil, fmt.Errorf("parse message id %q: %w", id, err)
@@ -466,7 +466,7 @@ func parseMessageIDs(ids []string) ([]ulid.ULID, error) {
 	return parsed, nil
 }
 
-func (m ManagedStorage) resolveAccountFolder(ctx context.Context, accountName, folderPath string) (*account.Account, *folder.Folder, error) {
+func (m Container) resolveAccountFolder(ctx context.Context, accountName, folderPath string) (*account.Account, *folder.Folder, error) {
 	acct, err := m.accounts.GetByName(ctx, accountName)
 	if err != nil {
 		return nil, nil, err
@@ -480,7 +480,7 @@ func (m ManagedStorage) resolveAccountFolder(ctx context.Context, accountName, f
 	return acct, fold, nil
 }
 
-func (m ManagedStorage) getFolderByPath(ctx context.Context, accountID ulid.ULID, folderPath string) (*folder.Folder, error) {
+func (m Container) getFolderByPath(ctx context.Context, accountID ulid.ULID, folderPath string) (*folder.Folder, error) {
 	foldersData, err := m.folders.List(ctx, accountID, &folderusecase.ListOpts{
 		Filter: folder.Filter{
 			Path: &folderPath,
@@ -497,7 +497,7 @@ func (m ManagedStorage) getFolderByPath(ctx context.Context, accountID ulid.ULID
 	return &fold, nil
 }
 
-func (m ManagedStorage) findMessagesInFolder(ctx context.Context, accountID, folderID ulid.ULID, ids []ulid.ULID) (map[ulid.ULID]searcher.FoundMsg, error) {
+func (m Container) findMessagesInFolder(ctx context.Context, accountID, folderID ulid.ULID, ids []ulid.ULID) (map[ulid.ULID]searcher.FoundMsg, error) {
 	if len(ids) == 0 {
 		return map[ulid.ULID]searcher.FoundMsg{}, nil
 	}
@@ -521,7 +521,7 @@ func (m ManagedStorage) findMessagesInFolder(ctx context.Context, accountID, fol
 	return byID, nil
 }
 
-func (m ManagedStorage) fetchMessageDTOs(ctx context.Context, ids []ulid.ULID) ([]MessageDTO, error) {
+func (m Container) fetchMessageDTOs(ctx context.Context, ids []ulid.ULID) ([]MessageDTO, error) {
 	if len(ids) == 0 {
 		return []MessageDTO{}, nil
 	}

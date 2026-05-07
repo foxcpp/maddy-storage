@@ -143,6 +143,44 @@ func (uc *Usecase) PrepareMessage(
 	)
 }
 
+func (uc *Usecase) PrepareMessageBodyBuffered(
+	ctx context.Context,
+	accountID ulid.ULID,
+	date time.Time, flags []string,
+	header textproto.Header, buffer Buffer,
+) (*message.NewMsg, error) {
+	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.PrepareMessageBodyBuffered").End()
+
+	msgID := ulid.Make()
+	log := contextlib.Logger(ctx).With(zap.Stringer("message_id", msgID))
+	ctx = contextlib.WithLogger(ctx, log)
+
+	r, err := buffer.Open(ctx)
+	if err != nil {
+		return nil, storeerrors.InternalError{Reason: fmt.Errorf("open msg buffer: %w", err)}
+	}
+	defer r.Close()
+
+	parts, err := uc.storePartsWithParsedHeader(ctx, accountID, msgID, header, bufio.NewReader(r))
+	if err != nil {
+		return nil, fmt.Errorf("PrepareMessage: %w", err)
+	}
+
+	contextlib.Logger(ctx).Info("stored message parts",
+		zap.Stringer("msg_id", msgID),
+		zap.Int("parts_count", len(parts)),
+		zap.Int("size", buffer.Len()),
+	)
+
+	return &message.NewMsg{
+		ID:      msgID,
+		Date:    date,
+		Flags:   flags,
+		Content: &message.ContentData{},
+		Parts:   parts,
+	}, nil
+}
+
 func (uc *Usecase) PrepareMessageBuffered(
 	ctx context.Context,
 	accountID ulid.ULID,
@@ -350,6 +388,24 @@ func (uc *Usecase) storeRawPart(
 		InlineBlob: inline,
 		ExternalID: blobID,
 	}, nil
+}
+
+func (uc *Usecase) storePartsWithParsedHeader(
+	ctx context.Context, accountID ulid.ULID,
+	msgID ulid.ULID, header textproto.Header, bodyReader *bufio.Reader,
+) ([]message.NewPart, error) {
+	log := contextlib.Logger(ctx)
+	log.Debug("reusing root message header", zap.Int("fields_count", header.Len()))
+
+	parts, err := uc.storePartsTree(ctx, accountID, msgID, message.EmptyPath(),
+		header, bodyReader, 0, false, false)
+	if err != nil {
+		return nil, fmt.Errorf("store parts tree: %w", err)
+	}
+
+	log.Debug("mime parts saved", zap.Int("parts_count", len(parts)))
+
+	return parts, nil
 }
 
 func (uc *Usecase) storeParts(ctx context.Context, accountID ulid.ULID, msgID ulid.ULID, reader *bufio.Reader) ([]message.NewPart, error) {
