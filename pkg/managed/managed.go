@@ -19,10 +19,23 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
+var (
+	ErrAccountNotFound = account.ErrNotFound
+	ErrFolderNotFound  = folder.ErrNotFound
+)
+
 type AccountDTO struct {
 	ID        string
 	Name      string
 	CreatedAt time.Time
+}
+
+type AccountInfo struct {
+	AccountDTO
+
+	CustomAppendLimit uint32
+	MaxStorageBytes   uint64
+	MaxMessagesCount  uint32
 }
 
 type AccountOptions struct{}
@@ -60,6 +73,24 @@ func New(
 		folders:  folders,
 		message:  message,
 	}
+}
+
+func (m Container) GetAccountInfo(ctx context.Context, username string) (*AccountInfo, error) {
+	acct, err := m.accounts.GetByName(ctx, username)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AccountInfo{
+		AccountDTO: AccountDTO{
+			ID:        acct.ID.String(),
+			Name:      acct.Name,
+			CreatedAt: acct.CreatedAt,
+		},
+		CustomAppendLimit: acct.Namespace.AppendLimit,
+		MaxStorageBytes:   acct.Namespace.MaxStorageBytes,
+		MaxMessagesCount:  acct.Namespace.MaxMessagesCount,
+	}, nil
 }
 
 func (m Container) ListAccounts(ctx context.Context, substring string, limit, offset int) ([]AccountDTO, error) {
