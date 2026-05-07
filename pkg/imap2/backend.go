@@ -24,6 +24,8 @@ type Config struct {
 	// If SetAccountID is used or authentication is successful - create
 	// account if it does not exist yet.
 	AutoCreateAccounts bool
+	
+	DefaultAppendLimit uint32
 }
 
 type Backend struct {

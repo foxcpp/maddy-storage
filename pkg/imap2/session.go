@@ -291,5 +291,10 @@ func (s *session) AppendLimit() uint32 {
 		return 0
 	}
 
+	if s.rootNamespace.AppendLimit == 0 {
+		// Not specified
+		return s.b.cfg.DefaultAppendLimit
+	}
+
 	return s.rootNamespace.AppendLimit
 }
