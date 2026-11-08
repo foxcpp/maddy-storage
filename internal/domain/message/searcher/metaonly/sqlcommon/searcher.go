@@ -89,10 +89,10 @@ func (s *Searcher) addConditions(ctx context.Context, q *gorm.DB, filter *search
 		q = q.Where("messages.updated_at < ?", filter.UpdatedLt)
 	}
 	if filter.SizeGt != 0 {
-		q = q.Where("messages.size > ?", filter.SizeGt)
+		q = q.Where("messages.total_size > ?", filter.SizeGt)
 	}
 	if filter.SizeLt != 0 {
-		q = q.Where("messages.size < ?", filter.SizeLt)
+		q = q.Where("messages.total_size < ?", filter.SizeLt)
 	}
 	if filter.Flag != nil {
 		hasRecent, otherFlags := recent.FilterRecentFlag(filter.Flag)

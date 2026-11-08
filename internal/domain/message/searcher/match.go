@@ -104,7 +104,7 @@ func Match(ctx context.Context, ent *FoundMsg, m *message.Msg, openPart FuncOpen
 	if !valInRange(ent.ModSeq, cond.ModSeqGt, cond.ModSeqLt) {
 		return false, nil
 	}
-	if !valInRange(ent.ModSeq, cond.ModSeqGt, cond.ModSeqLt) {
+	if !valInRange(m.TotalSize, cond.SizeGt, cond.SizeLt) {
 		return false, nil
 	}
 

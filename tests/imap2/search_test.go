@@ -181,3 +181,129 @@ func TestSearchSeqNumRangeWithNotOr(t *testing.T) {
 		})
 	}
 }
+
+// RFC822.SIZE must report the real message size and SMALLER/LARGER searches
+// (also nested in NOT/OR) must be evaluated against it.
+func TestSearchSize(t *testing.T) {
+	s := utils.TestServer(t)
+	s.Run()
+	defer s.Close()
+
+	username, password := s.Account()
+
+	cl := s.Client(utils.NewUnilateralRecorder())
+	defer cl.Close()
+	require.NoError(t, cl.Login(username, password).Wait())
+
+	require.NoError(t, cl.Create("other", nil).Wait())
+
+	// Different sizes in increasing order.
+	msgs := []string{
+		utils.CRLF("Subject: a\n\n1\n"),
+		utils.CRLF("Subject: a\n\n22\n"),
+		utils.CRLF("Subject: a\n\n333\n"),
+		utils.CRLF("Subject: a\n\n4444\n"),
+	}
+	for _, m := range msgs {
+		appendMsg(t, cl, "INBOX", m)
+	}
+	// Must never be returned for INBOX.
+	appendMsg(t, cl, "other", utils.CRLF("Subject: a\n\n55555\n"))
+
+	_, err := cl.Select("INBOX", nil).Wait()
+	require.NoError(t, err)
+
+	t.Run("fetch rfc822.size", func(t *testing.T) {
+		bufs, err := cl.Fetch(imap.SeqSetNum(1, 2, 3, 4), &imap.FetchOptions{RFC822Size: true}).Collect()
+		require.NoError(t, err)
+		require.Len(t, bufs, 4)
+		// Responses are not guaranteed to be ordered.
+		for _, b := range bufs {
+			require.Equal(t, int64(len(msgs[b.SeqNum-1])), b.RFC822Size, "message %d", b.SeqNum)
+		}
+	})
+
+	mid := uint32(len(msgs[2]))
+	smaller := imap.SearchCriteria{Smaller: int64(mid)}
+	larger := imap.SearchCriteria{Larger: int64(mid)}
+
+	cases := map[string]struct {
+		Criteria imap.SearchCriteria
+		Want     []uint32
+	}{
+		"smaller": {smaller, []uint32{1, 2}},
+		"larger":  {larger, []uint32{4}},
+		"not smaller": {
+			imap.SearchCriteria{Not: []imap.SearchCriteria{smaller}}, []uint32{3, 4},
+		},
+		"not larger": {
+			imap.SearchCriteria{Not: []imap.SearchCriteria{larger}}, []uint32{1, 2, 3},
+		},
+		"not smaller not larger": {
+			imap.SearchCriteria{Not: []imap.SearchCriteria{smaller, larger}}, []uint32{3},
+		},
+		"or smaller larger": {
+			imap.SearchCriteria{Or: [][2]imap.SearchCriteria{{smaller, larger}}}, []uint32{1, 2, 4},
+		},
+		"smaller and larger": {
+			imap.SearchCriteria{Smaller: int64(mid + 1), Larger: int64(mid - 1)}, []uint32{3},
+		},
+		"smaller and header": {
+			imap.SearchCriteria{
+				Smaller: int64(mid),
+				Header:  []imap.SearchCriteriaHeaderField{{Key: "Subject", Value: "a"}},
+			},
+			[]uint32{1, 2},
+		},
+		"not smaller and header": {
+			imap.SearchCriteria{
+				Not:    []imap.SearchCriteria{smaller},
+				Header: []imap.SearchCriteriaHeaderField{{Key: "Subject", Value: "a"}},
+			},
+			[]uint32{3, 4},
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			data, err := cl.Search(&c.Criteria, nil).Wait()
+			require.NoError(t, err)
+			require.Equal(t, c.Want, data.AllSeqNums())
+		})
+	}
+}
+
+// Copies must keep the size of the original message, both as reported by
+// FETCH and as seen by SMALLER/LARGER searches.
+func TestCopyPreservesSize(t *testing.T) {
+	s := utils.TestServer(t)
+	s.Run()
+	defer s.Close()
+
+	username, password := s.Account()
+
+	cl := s.Client(utils.NewUnilateralRecorder())
+	defer cl.Close()
+	require.NoError(t, cl.Login(username, password).Wait())
+
+	require.NoError(t, cl.Create("copy", nil).Wait())
+
+	msg := utils.CRLF("Subject: a\n\nbody\n")
+	appendMsg(t, cl, "INBOX", msg)
+
+	_, err := cl.Select("INBOX", nil).Wait()
+	require.NoError(t, err)
+	_, err = cl.Copy(imap.SeqSetNum(1), "copy").Wait()
+	require.NoError(t, err)
+
+	_, err = cl.Select("copy", nil).Wait()
+	require.NoError(t, err)
+
+	bufs, err := cl.Fetch(imap.SeqSetNum(1), &imap.FetchOptions{RFC822Size: true}).Collect()
+	require.NoError(t, err)
+	require.Len(t, bufs, 1)
+	require.Equal(t, int64(len(msg)), bufs[0].RFC822Size)
+
+	data, err := cl.Search(&imap.SearchCriteria{Larger: int64(len(msg) - 1)}, nil).Wait()
+	require.NoError(t, err)
+	require.Equal(t, []uint32{1}, data.AllSeqNums())
+}

@@ -98,6 +98,7 @@ func asModel(msgDTO *msgDTO, flagsDTO []msgFlagDTO, partsDTO []msgPartDTO) (*mes
 		CreatedAtModSeq: folder.ModSeq(msgDTO.CreatedAtModSeq),
 		ModSeq:          folder.ModSeq(msgDTO.ModSeq),
 		ReceivedAt:      msgDTO.ReceivedAt,
+		TotalSize:       msgDTO.TotalSize,
 		CreatedAt:       msgDTO.CreatedAt,
 		UpdatedAt:       msgDTO.UpdatedAt,
 	}
