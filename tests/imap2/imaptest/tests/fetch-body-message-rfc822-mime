@@ -54,6 +54,7 @@ Subject: m2
 m2 body
 
 --foo--
+
 }}})
 
 ok fetch 1 (body.peek[1])
