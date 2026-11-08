@@ -183,7 +183,7 @@ func New(data *NewMsg, additionalMeta metadata.Md) (*Msg, error) {
 	parts := make([]Part, len(data.Parts))
 	for i, p := range data.Parts {
 		if p.ID == (ulid.ULID{}) {
-			data.ID = ulid.Make()
+			p.ID = ulid.Make()
 		}
 		parts[i] = Part{
 			ID:             p.ID,
