@@ -288,7 +288,7 @@ func (s *session) Close() error {
 
 func (s *session) AppendLimit() uint32 {
 	if s.rootNamespace == nil {
-		return 0
+		return s.b.cfg.DefaultAppendLimit
 	}
 
 	if s.rootNamespace.AppendLimit == 0 {

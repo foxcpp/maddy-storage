@@ -14,6 +14,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const defaultAppendLimit = 100 * 1024 * 1024 // 100 MiB
+
 type Config struct {
 	ConnLogLevel zapcore.Level
 	IODump       bool
@@ -24,7 +26,7 @@ type Config struct {
 	// If SetAccountID is used or authentication is successful - create
 	// account if it does not exist yet.
 	AutoCreateAccounts bool
-	
+
 	DefaultAppendLimit uint32
 }
 
@@ -48,6 +50,13 @@ func New(
 	recents recent.Tracker,
 	watcher folder.Watcher,
 ) *Backend {
+	if cfg.DefaultAppendLimit == 0 {
+		cfg.DefaultAppendLimit = defaultAppendLimit
+	}
+	if cfg.ConnLogLevel == 0 {
+		cfg.ConnLogLevel = zapcore.InfoLevel
+	}
+
 	return &Backend{
 		cfg: cfg,
 		log: log,
