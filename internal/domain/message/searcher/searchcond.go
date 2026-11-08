@@ -124,8 +124,18 @@ func (s *Cond) SplitMetaBody() SplitSearchCond {
 	}
 
 	if s.Not != nil || s.Or != nil {
+		// Not and Or can't be evaluated against metadata without the body
+		// content, so the body matcher evaluates the full condition. Still
+		// return the top-level metadata conditions so the caller has a
+		// non-nil pre-filter and folder scope is not lost.
+		meta := *s
+		meta.Header = nil
+		meta.InHeaderBody = nil
+		meta.InBodyOnly = nil
+		meta.Not = nil
+		meta.Or = nil
 		return SplitSearchCond{
-			Metadata: nil,
+			Metadata: &meta,
 			Body:     s,
 		}
 	}

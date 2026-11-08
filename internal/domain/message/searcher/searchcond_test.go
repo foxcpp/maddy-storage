@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,6 +72,8 @@ func TestCond_And_MergesContentConditions(t *testing.T) {
 }
 
 func TestSearchCond_SplitMetaBody(t *testing.T) {
+	folderID := ulid.Make()
+
 	cases := []struct {
 		Input  Cond
 		Output SplitSearchCond
@@ -111,13 +114,41 @@ func TestSearchCond_SplitMetaBody(t *testing.T) {
 				},
 			},
 			Output: SplitSearchCond{ // TODO: more advanced splitting
-				Metadata: nil,
+				// Not/Or are evaluated in the body matcher but top-level
+				// metadata conditions are still usable as a pre-filter.
+				Metadata: &Cond{
+					Flag: []string{"hello"},
+				},
 				Body: &Cond{
 					InHeaderBody: []string{"pattern"},
 					Flag:         []string{"hello"},
 					Not: []*Cond{
 						{
 							Flag: []string{"extra"},
+						},
+					},
+				},
+			},
+		},
+		{
+			// Folder scope must never be lost by the split.
+			Input: Cond{
+				FolderIDs: []ulid.ULID{folderID},
+				Not: []*Cond{
+					{
+						Header: []HeaderField{{Key: "Subject"}},
+					},
+				},
+			},
+			Output: SplitSearchCond{
+				Metadata: &Cond{
+					FolderIDs: []ulid.ULID{folderID},
+				},
+				Body: &Cond{
+					FolderIDs: []ulid.ULID{folderID},
+					Not: []*Cond{
+						{
+							Header: []HeaderField{{Key: "Subject"}},
 						},
 					},
 				},
