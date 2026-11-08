@@ -52,8 +52,8 @@ func (s *session) criteriaAsSearcherCond(criteria *imap.SearchCriteria) (cond *s
 			}
 		}
 	}
-	cond.InHeaderBody = criteria.Body
-	cond.InBodyOnly = criteria.Text
+	cond.InHeaderBody = criteria.Text
+	cond.InBodyOnly = criteria.Body
 
 	if criteria.Flag != nil {
 		cond.Flag = make([]string, len(criteria.Flag))

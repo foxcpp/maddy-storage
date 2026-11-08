@@ -62,9 +62,9 @@ func (s *Cond) And(other *Cond) {
 	if other.UpdatedLt.Before(s.UpdatedLt) {
 		s.UpdatedLt = other.UpdatedLt
 	}
-	s.Header = append(s.Header, s.Header...)
-	s.InHeaderBody = append(s.InHeaderBody, s.InHeaderBody...)
-	s.InBodyOnly = append(s.InBodyOnly, s.InBodyOnly...)
+	s.Header = append(s.Header, other.Header...)
+	s.InHeaderBody = append(s.InHeaderBody, other.InHeaderBody...)
+	s.InBodyOnly = append(s.InBodyOnly, other.InBodyOnly...)
 	s.SizeGt = max(s.SizeGt, other.SizeGt)
 	s.SizeLt = min(s.SizeLt, other.SizeLt)
 	s.Flag = append(s.Flag, other.Flag...)
