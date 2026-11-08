@@ -99,3 +99,85 @@ func TestSearchNotOrWithContentConditions(t *testing.T) {
 		})
 	}
 }
+
+// Sequence number ranges combined with NOT/OR and header conditions are
+// evaluated in Go by the body matcher, which needs sequence numbers even for
+// UID SEARCH.
+func TestSearchSeqNumRangeWithNotOr(t *testing.T) {
+	s := utils.TestServer(t)
+	s.Run()
+	defer s.Close()
+
+	username, password := s.Account()
+
+	cl := s.Client(utils.NewUnilateralRecorder())
+	defer cl.Close()
+	require.NoError(t, cl.Login(username, password).Wait())
+
+	appendMsg(t, cl, "INBOX", utils.CRLF("Subject: hello world\n\nfirst body\n"))
+	appendMsg(t, cl, "INBOX", utils.CRLF("X-Extra: hello\n\nsecond body\n"))
+	appendMsg(t, cl, "INBOX", utils.CRLF("X-Extra: bye\n\nthird body\n"))
+
+	_, err := cl.Select("INBOX", nil).Wait()
+	require.NoError(t, err)
+
+	subjectHello := imap.SearchCriteriaHeaderField{Key: "Subject", Value: "hello"}
+	hasSubject := imap.SearchCriteriaHeaderField{Key: "Subject"}
+
+	// Sequence numbers equal UIDs in this mailbox, so both commands must
+	// return the same values.
+	cases := map[string]struct {
+		Criteria imap.SearchCriteria
+		Want     []uint32
+	}{
+		"not seq with header": {
+			Criteria: imap.SearchCriteria{
+				Header: []imap.SearchCriteriaHeaderField{subjectHello},
+				Not:    []imap.SearchCriteria{{SeqNum: []imap.SeqSet{imap.SeqSetNum(1)}}},
+			},
+			Want: nil,
+		},
+		"or seq with header": {
+			Criteria: imap.SearchCriteria{
+				Or: [][2]imap.SearchCriteria{{
+					{SeqNum: []imap.SeqSet{imap.SeqSetNum(2)}},
+					{Header: []imap.SearchCriteriaHeaderField{subjectHello}},
+				}},
+			},
+			Want: []uint32{1, 2},
+		},
+		"top-level seq with not header": {
+			Criteria: imap.SearchCriteria{
+				SeqNum: []imap.SeqSet{imap.SeqSetNum(2, 3)},
+				Not:    []imap.SearchCriteria{{Header: []imap.SearchCriteriaHeaderField{hasSubject}}},
+			},
+			Want: []uint32{2, 3},
+		},
+		"top-level seq with not seq and header": {
+			Criteria: imap.SearchCriteria{
+				SeqNum: []imap.SeqSet{imap.SeqSetNum(1, 2)},
+				Not:    []imap.SearchCriteria{{SeqNum: []imap.SeqSet{imap.SeqSetNum(1)}}},
+				Header: []imap.SearchCriteriaHeaderField{{Key: "X-Extra"}},
+			},
+			Want: []uint32{2},
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name+"/SEARCH", func(t *testing.T) {
+			data, err := cl.Search(&c.Criteria, nil).Wait()
+			require.NoError(t, err)
+			require.Equal(t, c.Want, data.AllSeqNums())
+		})
+		t.Run(name+"/UID SEARCH", func(t *testing.T) {
+			data, err := cl.UIDSearch(&c.Criteria, nil).Wait()
+			require.NoError(t, err)
+
+			var uids []uint32
+			for _, u := range data.AllUIDs() {
+				uids = append(uids, uint32(u))
+			}
+			require.Equal(t, c.Want, uids)
+		})
+	}
+}

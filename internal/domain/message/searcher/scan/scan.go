@@ -120,10 +120,13 @@ func (s *Searcher) Search(ctx context.Context, accountID ulid.ULID, cond *search
 	split := cond.SplitMetaBody()
 
 	res, err := s.metaSearch.Search(ctx, accountID, split.Metadata, searcher.Opts{
-		At:            opts.At,
-		DeletesAt:     opts.DeletesAt,
-		ReturnAll:     true,
-		ReturnSeqNums: opts.ReturnSeqNums,
+		At:        opts.At,
+		DeletesAt: opts.DeletesAt,
+		ReturnAll: true,
+		// Match evaluates sequence number ranges (including ones nested in
+		// Not/Or) against FoundMsg.SeqNum, so it must be populated even if
+		// the caller did not ask for it (e.g. UID SEARCH).
+		ReturnSeqNums: opts.ReturnSeqNums || cond.NeedsSeqNum(),
 	})
 	if err != nil {
 		return searcher.SearchResult{}, fmt.Errorf("failed to run metadata search: %w", err)
