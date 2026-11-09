@@ -54,7 +54,7 @@ func (r repo) fetch(tx *gorm.DB, modSeqGt folder.ModSeq, id ulid.ULID) (*msgDTO,
 	q := tx.Model(&msgDTO{}).
 		Where("messages.id = ?", id)
 	if modSeqGt != 0 {
-		q = q.Where("message.modseq > ?", modSeqGt)
+		q = q.Where("messages.modseq > ?", modSeqGt)
 	}
 	err = q.Limit(1).
 		Find(&msg).Error
@@ -129,7 +129,7 @@ func (r repo) GetByIDs(ctx context.Context, modSeqGt folder.ModSeq, ids ...ulid.
 	q := db.Model(&msgDTO{}).
 		Where("messages.id IN (?)", ids)
 	if modSeqGt != 0 {
-		q = q.Where("message.modseq > ?", modSeqGt)
+		q = q.Where("messages.modseq > ?", modSeqGt)
 	}
 	err = q.Find(&msgs).Error
 	if err != nil {
@@ -157,8 +157,17 @@ func (r repo) GetByIDs(ctx context.Context, modSeqGt folder.ModSeq, ids ...ulid.
 		joined.flags = append(joined.flags, flag)
 	}
 
+	// Preserve the order of ids, callers rely on it (e.g. FETCH responses
+	// are expected in sequence number order). Map iteration order is random.
 	models := make([]message.Msg, 0, len(ids))
-	for _, joined := range byID {
+	for _, id := range ids {
+		joined, ok := byID[id]
+		if !ok {
+			continue
+		}
+		// Guard against duplicate ids in the input.
+		delete(byID, id)
+
 		m, err := asModel(joined.msg, joined.flags, joined.parts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create model for msg %v: %w", joined.msg.ID, err)

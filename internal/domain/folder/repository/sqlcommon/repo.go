@@ -631,6 +631,7 @@ func (r repo) GetEntryByRange(ctx context.Context, folderID ulid.ULID, ranges fo
 		q = q.Where("folder_entries.deleted_at IS NULL")
 	}
 	q = r.addRangeConds(ctx, q, ranges)
+	q = q.Order("folder_entries.uid")
 
 	err := q.Find(&entries).Error
 	if err != nil {

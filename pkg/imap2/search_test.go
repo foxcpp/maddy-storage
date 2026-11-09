@@ -140,10 +140,43 @@ func TestCriteriaAsSearcherCondNumericIDs(t *testing.T) {
 	require.Equal(t, []uint32{2}, seqs.Values)
 }
 
+// SEARCH treats sequence numbers past the end of the mailbox as non-matching
+// instead of failing (unlike FETCH/STORE/COPY, see idsAsRange).
 func TestCriteriaAsSearcherCondSeqOutOfRange(t *testing.T) {
-	_, _, err := newSearchTestSession().criteriaAsSearcherCond(&imap.SearchCriteria{
-		SeqNum: []imap.SeqSet{imap.SeqSetNum(11)}, // mailbox has 10 messages
-	})
+	cases := map[string]struct {
+		Set       imap.SeqSet
+		Values    []uint32
+		Intervals []folder.NumInterval
+	}{
+		"single past end": {Set: imap.SeqSetNum(11), Values: []uint32{}},
+		"range past end":  {Set: imap.SeqSet{{Start: 11, Stop: 20}}, Values: []uint32{}},
+		"reversed range":  {Set: imap.SeqSet{{Start: 20, Stop: 11}}, Values: []uint32{}},
+		"partially past":  {Set: imap.SeqSet{{Start: 8, Stop: 100}}, Intervals: []folder.NumInterval{{Since: 8, Until: 10}}},
+		"mixed":           {Set: imap.SeqSetNum(3, 11), Values: []uint32{3}},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) { // mailbox has 10 messages
+			cond, _, err := newSearchTestSession().criteriaAsSearcherCond(&imap.SearchCriteria{
+				SeqNum: []imap.SeqSet{c.Set},
+			})
+			require.NoError(t, err)
+			require.Len(t, cond.NumericIDs, 1)
+
+			rang := cond.NumericIDs[0]
+			require.True(t, rang.SeqNum)
+			require.Equal(t, c.Values, rang.Values)
+			require.Equal(t, c.Intervals, rang.Intervals)
+			if c.Values != nil && len(c.Values) == 0 {
+				// Must be distinguishable from "no restriction".
+				require.NotNil(t, rang.Values)
+			}
+		})
+	}
+}
+
+func TestIdsAsRangeSeqOutOfRangeIsStrict(t *testing.T) {
+	_, err := newSearchTestSession().mbox.idsAsRange(imap.SeqSetNum(11)) // mailbox has 10 messages
 	require.ErrorIs(t, err, errSeqOutOfRange)
 }
 

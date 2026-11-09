@@ -16,6 +16,12 @@ func (s *session) asIMAPError(err error) error {
 		return nil
 	}
 
+	// Already a protocol-level response (e.g. errSeqOutOfRange), pass it as is.
+	var imapErr *imap.Error
+	if errors.As(err, &imapErr) {
+		return imapErr
+	}
+
 	var valid storeerrors.ValidationError
 	if errors.As(err, &valid) {
 		if s.accountID != (ulid.ULID{}) { // log only for authenticated sessions to prevent log spam

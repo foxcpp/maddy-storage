@@ -32,7 +32,7 @@ func (s *session) criteriaAsSearcherCond(criteria *imap.SearchCriteria) (cond *s
 			cond.NumericIDs = append(cond.NumericIDs, ids)
 		}
 		for _, seq := range criteria.SeqNum {
-			ids, err := s.mbox.idsAsRange(seq)
+			ids, err := s.mbox.searchIDsAsRange(seq)
 			if err != nil {
 				return nil, false, err
 			}

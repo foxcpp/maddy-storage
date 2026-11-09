@@ -171,7 +171,7 @@ func joinSeqNum(q *gorm.DB, at, deletesAt folder.ModSeq, folders ...ulid.ULID) *
 				folder_entries.deleted_at IS NULL OR
 				(folder_entries.deleted_at IS NOT NULL AND folder_entries.modseq > ?))
 		) seqnums 
-		ON seqnums.msg_id = folder_entries.message_id 
+		ON seqnums.uid = folder_entries.uid 
 		AND seqnums.folder_id = folder_entries.folder_id`, at, deletesAt)
 	} else {
 		return q.Joins(`JOIN (
@@ -201,7 +201,11 @@ func (s *Searcher) addRangeConds(ctx context.Context, q *gorm.DB, rang folder.Ra
 		or = or.Or(query, args...)
 	}
 	if rang.Values != nil {
-		if rang.SeqNum {
+		if len(rang.Values) == 0 && len(rang.Intervals) == 0 {
+			// Explicitly empty set matches nothing. Do not rely on "IN (NULL)"
+			// here as it is NULL (not false) and so survives no negation.
+			addCond("1 = 0")
+		} else if rang.SeqNum {
 			addCond("seqnums.seq IN (?)", rang.Values)
 		} else {
 			addCond("folder_entries.uid IN (?)", rang.Values)
@@ -324,12 +328,27 @@ func (s *Searcher) searchAggregated(ctx context.Context, tx *gorm.DB, accountID 
 		res := searcher.SearchResult{
 			ByFolder: make(map[ulid.ULID]*searcher.SearchResult, len(cond.FolderIDs)),
 		}
+		// GROUP BY does not return rows for folders without matches, but callers
+		// expect a (zero) result for each requested folder.
+		for _, id := range cond.FolderIDs {
+			res.ByFolder[id] = &searcher.SearchResult{}
+		}
+		// Zero means "unset" for min values, so it must not win the comparison.
+		minNonZero := func(a, b uint32) uint32 {
+			if a == 0 {
+				return b
+			}
+			if b == 0 {
+				return a
+			}
+			return min(a, b)
+		}
 
 		for _, d := range found {
-			res.MinUID = min(res.MinUID, d.MinUID)
-			res.MaxUID = min(res.MaxUID, d.MaxUID)
-			res.MinSeq = min(res.MinSeq, d.MinSeq)
-			res.MaxSeq = min(res.MaxSeq, d.MaxSeq)
+			res.MinUID = minNonZero(res.MinUID, d.MinUID)
+			res.MaxUID = max(res.MaxUID, d.MaxUID)
+			res.MinSeq = minNonZero(res.MinSeq, d.MinSeq)
+			res.MaxSeq = max(res.MaxSeq, d.MaxSeq)
 			res.Count += d.Count
 			if folder.ModSeq(d.MaxModSeq) > res.MaxModSeq {
 				res.MaxModSeq = folder.ModSeq(d.MaxModSeq)
@@ -346,6 +365,8 @@ func (s *Searcher) searchAggregated(ctx context.Context, tx *gorm.DB, accountID 
 				TotalSize: d.TotalSize,
 			}
 		}
+
+		return res, nil
 	}
 
 	var found aggregatedDTO
@@ -357,6 +378,8 @@ func (s *Searcher) searchAggregated(ctx context.Context, tx *gorm.DB, accountID 
 		Count:     found.Count,
 		MinUID:    found.MinUID,
 		MaxUID:    found.MaxUID,
+		MinSeq:    found.MinSeq,
+		MaxSeq:    found.MaxSeq,
 		MaxModSeq: folder.ModSeq(found.MaxModSeq),
 	}, nil
 }
@@ -411,9 +434,6 @@ func (s *Searcher) searchAll(ctx context.Context, tx *gorm.DB, accountID ulid.UL
 	res := searcher.SearchResult{
 		All: make([]searcher.FoundMsg, 0, len(dtos)),
 	}
-	if opts.ReturnCount {
-		res.Count = uint32(len(dtos))
-	}
 
 	for _, d := range dtos {
 		var deletedAt time.Time
@@ -425,6 +445,7 @@ func (s *Searcher) searchAll(ctx context.Context, tx *gorm.DB, accountID ulid.UL
 			FolderID:  d.FolderID,
 			UID:       d.UID,
 			SeqNum:    d.Seq,
+			ModSeq:    folder.ModSeq(d.ModSeq),
 			MessageID: d.MessageID,
 			UpdatedAt: d.UpdatedAt,
 			TotalSize: d.TotalSize,

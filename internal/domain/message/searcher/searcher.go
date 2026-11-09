@@ -68,6 +68,9 @@ func (res *SearchResult) add(opts *Opts, ent FoundMsg) {
 	if opts.ReturnAll {
 		res.All = append(res.All, ent)
 	}
+	if opts.ReturnCount {
+		res.Count++
+	}
 	if opts.ReturnMaxUID && (res.MaxUID < ent.UID || res.MaxUID == 0) {
 		res.MaxUID = ent.UID
 		res.MaxSeq = ent.SeqNum
@@ -76,7 +79,7 @@ func (res *SearchResult) add(opts *Opts, ent FoundMsg) {
 		res.MinUID = ent.UID
 		res.MinSeq = ent.SeqNum
 	}
-	if opts.ReturnModSeq && (res.MaxModSeq < ent.ModSeq) || res.MaxModSeq == 0 {
+	if opts.ReturnModSeq && (res.MaxModSeq < ent.ModSeq || res.MaxModSeq == 0) {
 		res.MaxModSeq = ent.ModSeq
 	}
 	if opts.ReturnTotalSize {

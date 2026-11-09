@@ -102,6 +102,50 @@ func (m *selectedMbox) idsAsRange(set imap.NumSet) (folder.Range, error) {
 	return res, nil
 }
 
+// searchIDsAsRange is like idsAsRange, but sequence numbers past the end of the
+// mailbox are not an error: SEARCH simply does not match them, the part of a
+// range that exists is still matched.
+//
+// A set where nothing exists is returned as a non-nil empty Values slice, which
+// the searcher treats as "match nothing" (as opposed to Range.Empty() ranges
+// that mean "no restriction").
+func (m *selectedMbox) searchIDsAsRange(set imap.NumSet) (folder.Range, error) {
+	seqSet, ok := set.(imap.SeqSet)
+	if !ok || imap.IsSearchRes(set) {
+		return m.idsAsRange(set)
+	}
+
+	clamped := make(imap.SeqSet, 0, len(seqSet))
+	for _, seq := range seqSet {
+		if seq.Start == 0 {
+			seq.Start = m.Msgs
+		}
+		if seq.Stop == 0 {
+			seq.Stop = m.Msgs
+		}
+		if seq.Stop < seq.Start {
+			seq.Start, seq.Stop = seq.Stop, seq.Start
+		}
+		if seq.Start == 0 || seq.Start > m.Msgs {
+			continue
+		}
+		seq.Stop = min(seq.Stop, m.Msgs)
+
+		clamped = append(clamped, seq)
+	}
+
+	if len(clamped) == 0 {
+		return folder.Range{
+			SeqNum:    true,
+			Values:    []uint32{},
+			At:        m.At,
+			DeletesAt: m.DeletesAt,
+		}, nil
+	}
+
+	return m.idsAsRange(clamped)
+}
+
 func (b *Backend) newSession(c *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 	sid := ulid.Make()
 
