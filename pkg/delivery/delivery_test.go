@@ -166,7 +166,7 @@ func TestDeliveryRole(t *testing.T) {
 	d.SetFlags([]string{"custom_flag"})
 	require.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{}))
 	require.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{}))
-	require.NoError(t, d.SelectFolders(ctx, folder.RoleJunk))
+	require.NoError(t, d.SelectFolders(ctx, folder.RoleJunk, nil))
 	require.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
 	require.NoError(t, d.Commit(ctx))
 
@@ -236,7 +236,7 @@ func TestDeliveryRcptOverride(t *testing.T) {
 	d.SetFlags([]string{"custom_flag"})
 	require.NoError(t, d.AddRcpt(ctx, "test_account1", RcptOpts{}))
 	require.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{}))
-	require.NoError(t, d.SelectFolders(ctx, folder.RoleJunk))
+	require.NoError(t, d.SelectFolders(ctx, folder.RoleJunk, nil))
 	require.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
 	require.NoError(t, d.Commit(ctx))
 
@@ -310,7 +310,7 @@ func TestDeliveryAdditionalPremable(t *testing.T) {
 	require.NoError(t, d.AddRcpt(ctx, "test_account2", RcptOpts{
 		AdditionalPremable: []byte("X-Delivered-To: test_account2\r\n"),
 	}))
-	require.NoError(t, d.SelectFolders(ctx, folder.RoleJunk))
+	require.NoError(t, d.SelectFolders(ctx, folder.RoleJunk, nil))
 	require.NoError(t, d.PrepareBody(ctx, int64(len(testMessageNoCT)), strings.NewReader(testMessageNoCT)))
 	require.NoError(t, d.Commit(ctx))
 
