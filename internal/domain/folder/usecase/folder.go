@@ -90,6 +90,32 @@ func (f Folder) GetByRole(ctx context.Context, accountID ulid.ULID, role folder.
 	return &roleFolder[0], nil
 }
 
+// matchingDescendants fetches all folders matching the filter using a single
+// query and groups them by the path of each of their ancestors, so that the
+// result for a folder is descendants[folder.Path].
+func (f Folder) matchingDescendants(ctx context.Context, accountID ulid.ULID, filter *folder.Filter, order folder.Order) (map[string][]folder.Folder, error) {
+	if filter.PathPrefix != nil {
+		panic("PathPrefix not supported for descendant filtering")
+	}
+
+	matching, err := f.repo.GetByAccount(ctx, accountID, *filter, order)
+	if err != nil {
+		return nil, err
+	}
+
+	descendants := make(map[string][]folder.Folder)
+	for _, d := range matching {
+		for i := 0; i < len(d.Path); i++ {
+			if d.Path[i] == folder.PathSeparator[0] {
+				ancestor := d.Path[:i]
+				descendants[ancestor] = append(descendants[ancestor], d)
+			}
+		}
+	}
+
+	return descendants, nil
+}
+
 func (f Folder) List(ctx context.Context, accountID ulid.ULID, opts *ListOpts, order folder.Order) ([]FolderData, error) {
 	foundRoots, err := f.repo.GetByAccount(ctx, accountID, opts.Filter, order)
 	if err != nil {
@@ -168,23 +194,22 @@ func (f Folder) List(ctx context.Context, accountID ulid.ULID, opts *ListOpts, o
 		}
 	}
 
+	var descendants map[string][]folder.Folder
+	if opts.DescendantFilter != nil {
+		descendants, err = f.matchingDescendants(ctx, accountID, opts.DescendantFilter, order)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	dataList := make([]FolderData, len(foundRoots))
 	for i, fold := range foundRoots {
 		data := FolderData{
 			Folder: fold,
 		}
 
-		if opts.DescendantFilter != nil {
-			prefix := fold.Path + folder.PathSeparator
-			if opts.DescendantFilter.PathPrefix != nil {
-				panic("PathPrefix not supported for descendant filtering")
-			}
-			opts.DescendantFilter.PathPrefix = &prefix
-			descendant, err := f.repo.GetByAccount(ctx, accountID, *opts.DescendantFilter, order)
-			if err != nil {
-				return nil, err
-			}
-			data.MatchingDescendant = descendant
+		if descendants != nil {
+			data.MatchingDescendant = descendants[fold.Path]
 		}
 
 		if opts.CheckChildren {

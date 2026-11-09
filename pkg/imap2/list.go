@@ -16,6 +16,11 @@ var (
 	patternNone     = regexp.MustCompile(``)
 	patternAllTree  = regexp.MustCompile(`.*`)
 	patternAllLevel = regexp.MustCompile(`[^/]*`) // slash is path separator (folder.PathSeparator)
+
+	// patternAllLevel is a fragment used to build longer patterns, so on its own
+	// it matches as a substring of any path. A bare "%" has to be anchored
+	// to match top-level names only.
+	patternTopLevel = regexp.MustCompile(`^` + patternAllLevel.String() + `$`)
 )
 
 func patternAsRegex(pattern string) *regexp.Regexp {
@@ -23,7 +28,7 @@ func patternAsRegex(pattern string) *regexp.Regexp {
 	case "":
 		return patternNone
 	case "%":
-		return patternAllLevel
+		return patternTopLevel
 	case "*":
 		return patternAllTree
 	}
@@ -49,6 +54,15 @@ func patternAsRegex(pattern string) *regexp.Regexp {
 	return regexp.MustCompile(reStr.String())
 }
 
+func matchesAny(patterns []*regexp.Regexp, path string) bool {
+	for _, re := range patterns {
+		if re.MatchString(path) {
+			return true
+		}
+	}
+	return false
+}
+
 func folderRoleAsSpecial(r folder.Role) imap.MailboxAttr {
 	return imap.MailboxAttr(`\` + string(r))
 }
@@ -71,7 +85,6 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 	ref = strings.TrimRight(ref, folder.PathSeparator)
 
 	options.ReturnSpecialUse = true
-	options.ReturnChildren = true
 
 	regexpPatterns := make([]*regexp.Regexp, len(patterns))
 	for i, p := range patterns {
@@ -90,10 +103,14 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 		Filter: folder.Filter{
 			PathRegex: regexpPatterns,
 		},
-		CheckChildren: true,
+		// RFC 9051, 6.3.9.5: \HasChildren and \HasNoChildren are mandatory only
+		// if the client asked for them, and computing them costs a query per
+		// folder.
+		CheckChildren: options.ReturnChildren,
 		SortAsTree:    true,
 	}
 	if options.SelectRecursiveMatch {
+		opts.DescendantFilter = &folder.Filter{}
 		if options.SelectSubscribed {
 			opts.DescendantFilter.Subscribed = &options.SelectSubscribed
 		}
@@ -175,16 +192,21 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 				data.Status.DeletedStorage = &f.DeletedSize
 			}
 		}
-		if options.SelectRecursiveMatch && len(f.MatchingDescendant) > 0 {
-			data.ChildInfo = &imap.ListDataChildInfo{}
-			for _, f := range f.MatchingDescendant {
-				if options.SelectSubscribed && f.Subscribed {
-					data.ChildInfo.Subscribed = true
+		if options.SelectRecursiveMatch {
+			// Descendants that match the pattern on their own are returned
+			// anyway, RFC 5258 section 3.5 says to not report their parent
+			// just because of them.
+			var hiddenDescendant bool
+			for _, d := range f.MatchingDescendant {
+				if options.SelectSubscribed && d.Subscribed && !matchesAny(regexpPatterns, d.Path) {
+					hiddenDescendant = true
 				}
 			}
-			if !data.ChildInfo.Subscribed /* all are false * */ {
-				data.ChildInfo = nil
+			if !hiddenDescendant && !(options.SelectSubscribed && f.Folder.Subscribed) {
 				continue // skip - no recursive match
+			}
+			if hiddenDescendant {
+				data.ChildInfo = &imap.ListDataChildInfo{Subscribed: true}
 			}
 		}
 

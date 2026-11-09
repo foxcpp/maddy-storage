@@ -32,7 +32,7 @@ func TestSortAsTree(t *testing.T) {
 
 	folders := []*Folder{folder1Sub1, folder1, folder2, folder1Sub1Sub2, folder3, folder1Sub3}
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		rand.Shuffle(len(folders), func(i, j int) {
 			folders[i], folders[j] = folders[j], folders[i]
 		})
@@ -57,10 +57,43 @@ func TestSortAsTree(t *testing.T) {
 	}
 }
 
+// Folders whose parent is not part of the input (e.g. LIST "" "a/b" returns
+// no "a") are sorted as if they were roots. Nothing may be dropped or
+// duplicated.
+func TestSortAsTreeParentsNotInInput(t *testing.T) {
+	parent, err := NewFolder(nil, ulid.ULID{}, "p", RoleNone)
+	require.NoError(t, err)
+
+	orphan, err := NewFolder(parent, ulid.ULID{}, "a", RoleNone)
+	require.NoError(t, err)
+
+	orphanChild, err := NewFolder(orphan, ulid.ULID{}, "c", RoleNone)
+	require.NoError(t, err)
+
+	otherOrphan, err := NewFolder(parent, ulid.ULID{}, "b", RoleNone)
+	require.NoError(t, err)
+
+	root, err := NewFolder(nil, ulid.ULID{}, "z", RoleNone)
+	require.NoError(t, err)
+
+	folders := []*Folder{root, orphanChild, otherOrphan, orphan}
+	SortAsTree(folders, func(e **Folder) *Folder {
+		return *e
+	}, func(a, b *Folder) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	paths := make([]string, len(folders))
+	for i, f := range folders {
+		paths[i] = f.Path
+	}
+	require.Equal(t, []string{"p/a", "p/a/c", "p/b", "z"}, paths)
+}
+
 func generateRandomTree(b *testing.B, size int) []*Folder {
 	folders := make([]*Folder, size)
 
-	for i := 0; i < size; i++ {
+	for i := range size {
 		parentIndx := rand.Intn(len(folders) + 1)
 		var parent *Folder
 		if parentIndx != len(folders) {

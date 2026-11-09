@@ -131,12 +131,18 @@ func (r repo) GetByPath(ctx context.Context, accountID ulid.ULID, path string) (
 func (r repo) getByRegexp(tx *gorm.DB, accountID ulid.ULID, f folder.Filter, order folder.Order, regex *regexp.Regexp) ([]folderDTO, error) {
 	prefix, complete := regex.LiteralPrefix()
 
+	query := tx.Model(&folderDTO{}).Where("folders.account_id = ?", accountID)
+	if complete && isAnchored(regex.String()) {
+		// The pattern names exactly one path, "path =" can use the unique
+		// index while LIKE cannot. LiteralPrefix ignores the anchors, so the
+		// "complete" flag alone is not enough (it is true for "^abc$").
+		query = query.Where("folders.path = ?", prefix)
+	} else {
+		query = query.Where(`folders.path LIKE ? ESCAPE '\'`, likeEscape.Replace(prefix)+"%")
+	}
+
 	var reDTO []folderDTO
-	err := addFilterToQuery(tx.
-		Model(&folderDTO{}).
-		Where("folders.account_id = ?", accountID).
-		Where(`folders.path LIKE ? ESCAPE '\'`, likeEscape.Replace(prefix)+"%"),
-		&f).
+	err := addFilterToQuery(query, &f).
 		Order(orderKey(order)).
 		Find(&reDTO).Error
 	if err != nil {
@@ -145,17 +151,28 @@ func (r repo) getByRegexp(tx *gorm.DB, accountID ulid.ULID, f folder.Filter, ord
 		}
 		return nil, storeerrors.InternalError{Reason: err}
 	}
-	if !complete {
-		foldersFiltered := reDTO[:0]
-		for _, f := range reDTO {
-			if regex.MatchString(f.Path) {
-				foldersFiltered = append(foldersFiltered, f)
-			}
+
+	foldersFiltered := reDTO[:0]
+	for _, f := range reDTO {
+		if regex.MatchString(f.Path) {
+			foldersFiltered = append(foldersFiltered, f)
 		}
-		return foldersFiltered, nil
+	}
+	return foldersFiltered, nil
+}
+
+// isAnchored reports whether the pattern starts with "^" and ends with "$"
+// (unescaped).
+func isAnchored(pattern string) bool {
+	if !strings.HasPrefix(pattern, "^") || !strings.HasSuffix(pattern, "$") {
+		return false
 	}
 
-	return reDTO, nil
+	backslashes := 0
+	for i := len(pattern) - 2; i >= 0 && pattern[i] == '\\'; i-- {
+		backslashes++
+	}
+	return backslashes%2 == 0
 }
 
 func (r repo) GetByAccount(ctx context.Context, accountID ulid.ULID, f folder.Filter, order folder.Order) ([]folder.Folder, error) {
@@ -176,13 +193,21 @@ func (r repo) GetByAccount(ctx context.Context, accountID ulid.ULID, f folder.Fi
 	case 1:
 		dto, err = r.getByRegexp(r.db.Gorm(ctx), accountID, f, order, f.PathRegex[0])
 	default:
+		// A folder matching several patterns must be returned once.
+		seen := make(map[ulid.ULID]struct{})
 		err = r.db.Gorm(ctx).Transaction(func(tx *gorm.DB) error {
 			for _, re := range f.PathRegex {
 				reDTO, err := r.getByRegexp(tx, accountID, f, order, re)
 				if err != nil {
 					return err
 				}
-				dto = append(dto, reDTO...)
+				for _, d := range reDTO {
+					if _, ok := seen[d.ID]; ok {
+						continue
+					}
+					seen[d.ID] = struct{}{}
+					dto = append(dto, d)
+				}
 			}
 			return nil
 		}, &sql.TxOptions{

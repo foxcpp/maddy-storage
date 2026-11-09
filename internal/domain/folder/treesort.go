@@ -25,10 +25,12 @@ func SortAsTree[Entry any](slice []Entry, folder func(e *Entry) *Folder, cmp fun
 		entByID[f.ID] = entry
 	}
 
-	// Short-cut without hierarchy.
+	// Entries without a parent in the input are roots of their own subtree, e.g.
+	// a LIST result for "a/b" does not include "a".
 	roots := make([]Entry, 0, len(byID))
 	for _, entry := range slice {
-		if f := folder(&entry); !f.HasParent() {
+		f := folder(&entry)
+		if _, hasParent := byID[f.ParentID]; !f.HasParent() || !hasParent {
 			roots = append(roots, entry)
 		}
 	}

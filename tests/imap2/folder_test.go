@@ -31,11 +31,9 @@ func TestFolderCreate(t *testing.T) {
 	c.ExpectNO("ALREADYEXISTS")
 
 	c.Writeln(`. LIST "" "%"`)
-	c.ExpectPattern(`\* LIST (\\Inbox \\HasNoChildren) "/" INBOX`)
-	c.ExpectPattern(`\* LIST (\\HasChildren) "/" "testfolder"`)
-	c.ExpectPattern(`\* LIST (\\HasNoChildren) "/" "testfolder/subfolder"`)
-	c.ExpectPattern(`\* LIST (\\HasChildren) "/" "testfolder2"`)
-	c.ExpectPattern(`\* LIST (\\HasNoChildren) "/" "testfolder2/subfolder"`)
+	c.Expect(`* LIST (\Inbox) "/" INBOX`)
+	c.Expect(`* LIST () "/" "testfolder"`)
+	c.Expect(`* LIST () "/" "testfolder2"`)
 	c.ExpectOK()
 }
 
@@ -63,9 +61,8 @@ func TestFolderDelete(t *testing.T) {
 	c.ExpectOK()
 
 	c.Writeln(`. LIST "" "%"`)
-	c.ExpectPattern(`\* LIST (\\Inbox \\HasNoChildren) "/" INBOX`)
-	c.ExpectPattern(`\* LIST (\\HasChildren) "/" "testfolder2"`)
-	c.ExpectPattern(`\* LIST (\\HasNoChildren) "/" "testfolder2/subfolder"`)
+	c.Expect(`* LIST (\Inbox) "/" INBOX`)
+	c.Expect(`* LIST () "/" "testfolder2"`)
 	c.ExpectOK()
 }
 
@@ -105,10 +102,8 @@ func TestFolderRename(t *testing.T) {
 	c.ExpectOK()
 
 	c.Writeln(`. LIST "" "%"`)
-	c.ExpectPattern(`\* LIST (\\Inbox \\HasNoChildren) "/" INBOX`)
-	c.ExpectPattern(`\* LIST (\\HasNoChildren) "/" "testfolder"`)
-	c.ExpectPattern(`\* LIST (\\HasChildren) "/" "testfolder3"`)
-	c.ExpectPattern(`\* LIST (\\HasChildren) "/" "testfolder3/intermediate"`)
-	c.ExpectPattern(`\* LIST (\\HasNoChildren) "/" "testfolder3/intermediate/renamed"`)
+	c.Expect(`* LIST (\Inbox) "/" INBOX`)
+	c.Expect(`* LIST () "/" "testfolder"`)
+	c.Expect(`* LIST () "/" "testfolder3"`)
 	c.ExpectOK()
 }
