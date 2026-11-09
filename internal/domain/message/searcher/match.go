@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/emersion/go-message/mail"
 	"github.com/emersion/go-message/textproto"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
@@ -62,6 +61,14 @@ func valInRange[T cmp.Ordered](val T, gt, lt T) bool {
 		return false
 	}
 	return true
+}
+
+func lowerAll(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = strings.ToLower(s)
+	}
+	return out
 }
 
 func Match(ctx context.Context, ent *FoundMsg, m *message.Msg, openPart FuncOpenPart, cond *Cond) (bool, error) {
@@ -221,12 +228,14 @@ func matchHeader(ctx context.Context, m *message.Msg, openPart FuncOpenPart, con
 		match := false
 
 		isAddress := isAddressField(field.Key)
+		needle := strings.ToLower(field.Value)
 
 		for _, val := range hdr.Values(field.Key) {
 			if isAddress {
 				val = normalizeAddressField(val)
 			}
-			if strings.Contains(val, field.Value) {
+			// RFC 3501 6.4.4: matching is case-insensitive.
+			if strings.Contains(strings.ToLower(val), needle) {
 				match = true
 			}
 		}
@@ -247,11 +256,17 @@ func isAddressField(key string) bool {
 }
 
 func normalizeAddressField(value string) string {
-	addrList, err := mail.ParseAddressList(value)
+	addrList, err := mimeutils.ParseAddressList(value)
 	if err != nil {
 		return value
 	}
 	b := strings.Builder{}
+	// Group names are not part of the parsed addresses, but RFC 3501 requires
+	// them to be searchable ("SEARCH TO groupname" must match an empty group).
+	for _, group := range mimeutils.AddressGroupNames(value) {
+		b.WriteString(group)
+		b.WriteString(", ")
+	}
 	for i, addr := range addrList {
 		b.WriteString(addr.String())
 		if i != len(addrList)-1 {
@@ -299,6 +314,9 @@ func matchBodyPart(ctx context.Context, m *message.Msg, part *message.Part,
 	}
 	defer rc.Close()
 
+	// RFC 3501 6.4.4: matching is case-insensitive.
+	lowText, lowBody := lowerAll(text), lowerAll(body)
+
 	buf := bufio.NewReader(rc)
 
 	if len(body) == 0 {
@@ -313,9 +331,10 @@ func matchBodyPart(ctx context.Context, m *message.Msg, part *message.Part,
 		hdr, err := textproto.ReadHeader(buf)
 		if err == nil {
 			for f := hdr.Fields(); f.Next(); {
-				for _, str := range body {
-					if strings.Contains(f.Value(), str) {
-						substringsFound[str] = struct{}{}
+				val := strings.ToLower(f.Value())
+				for i, str := range lowBody {
+					if strings.Contains(val, str) {
+						substringsFound[body[i]] = struct{}{}
 					}
 				}
 			}
@@ -335,14 +354,15 @@ func matchBodyPart(ctx context.Context, m *message.Msg, part *message.Part,
 
 	bufScnr := bufio.NewScanner(r)
 	for bufScnr.Scan() {
-		for _, str := range text {
-			if strings.Contains(bufScnr.Text(), str) {
-				substringsFound[str] = struct{}{}
+		line := strings.ToLower(bufScnr.Text())
+		for i, str := range lowText {
+			if strings.Contains(line, str) {
+				substringsFound[text[i]] = struct{}{}
 			}
 		}
-		for _, str := range body {
-			if strings.Contains(bufScnr.Text(), str) {
-				substringsFound[str] = struct{}{}
+		for i, str := range lowBody {
+			if strings.Contains(line, str) {
+				substringsFound[body[i]] = struct{}{}
 			}
 		}
 	}

@@ -31,7 +31,8 @@ func TestOffsetWriter_Write(t *testing.T) {
 			Offset: int64(offset),
 			Size:   int64(size),
 		}
-		if _, err := io.CopyBuffer(&w, strings.NewReader(stream), make([]byte, int(rand.Int31n(8192)))); err != nil {
+		// io.CopyBuffer panics on an empty buffer, so the size must be >= 1.
+		if _, err := io.CopyBuffer(&w, strings.NewReader(stream), make([]byte, 1+int(rand.Int31n(8192)))); err != nil {
 			t.Fatal(err)
 		}
 

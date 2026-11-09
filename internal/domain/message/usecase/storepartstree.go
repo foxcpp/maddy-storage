@@ -510,27 +510,35 @@ func (uc *Usecase) fillEnvelopeFromHeader(ctx context.Context, header textproto.
 	}
 	envelope.Subject = header.Get("Subject")
 
-	envelope.From, err = parsedHeader.AddressList("From")
+	addrList := func(key string) ([]*message.Address, error) {
+		v := header.Get(key)
+		if v == "" {
+			return nil, nil
+		}
+		return mimeutils.ParseAddressList(v)
+	}
+
+	envelope.From, err = addrList("From")
 	if err != nil {
 		log.Error("failed to parse From header", zap.Error(err))
 	}
-	envelope.Sender, err = parsedHeader.AddressList("Sender")
+	envelope.Sender, err = addrList("Sender")
 	if err != nil {
 		log.Error("failed to parse Sender header", zap.Error(err))
 	}
-	envelope.ReplyTo, err = parsedHeader.AddressList("Reply-To")
+	envelope.ReplyTo, err = addrList("Reply-To")
 	if err != nil {
 		log.Error("failed to parse Reply-To header", zap.Error(err))
 	}
-	envelope.To, err = parsedHeader.AddressList("To")
+	envelope.To, err = addrList("To")
 	if err != nil {
 		log.Error("failed to parse To header", zap.Error(err))
 	}
-	envelope.Cc, err = parsedHeader.AddressList("Cc")
+	envelope.Cc, err = addrList("Cc")
 	if err != nil {
 		log.Error("failed to parse Cc header", zap.Error(err))
 	}
-	envelope.Bcc, err = parsedHeader.AddressList("Bcc")
+	envelope.Bcc, err = addrList("Bcc")
 	if err != nil {
 		log.Error("failed to parse Bcc header", zap.Error(err))
 	}

@@ -272,6 +272,87 @@ func TestSearchSize(t *testing.T) {
 	}
 }
 
+// RFC 5322 allows comments (CFWS) around the local-part and the domain of an
+// addr-spec. net/mail does not, so such headers need a tolerant fallback for
+// both SEARCH and the stored ENVELOPE.
+func TestAddressWithCommentsInAddrSpec(t *testing.T) {
+	s := utils.TestServer(t)
+	s.Run()
+	defer s.Close()
+
+	username, password := s.Account()
+
+	cl := s.Client(utils.NewUnilateralRecorder())
+	defer cl.Close()
+	require.NoError(t, cl.Login(username, password).Wait())
+
+	appendMsg(t, cl, "INBOX", utils.CRLF("From: <user-from (comment)@ (comment) domain.org>\n\nbody\n"))
+	appendMsg(t, cl, "INBOX", utils.CRLF("From: user-other@domain.org\n\nbody\n"))
+
+	_, err := cl.Select("INBOX", nil).Wait()
+	require.NoError(t, err)
+
+	t.Run("search", func(t *testing.T) {
+		data, err := cl.Search(&imap.SearchCriteria{
+			Header: []imap.SearchCriteriaHeaderField{{Key: "From", Value: "user-from@domain.org"}},
+		}, nil).Wait()
+		require.NoError(t, err)
+		require.Equal(t, []uint32{1}, data.AllSeqNums())
+	})
+
+	t.Run("envelope", func(t *testing.T) {
+		bufs, err := cl.Fetch(imap.SeqSetNum(1), &imap.FetchOptions{Envelope: true}).Collect()
+		require.NoError(t, err)
+		require.Len(t, bufs, 1)
+		require.NotNil(t, bufs[0].Envelope)
+
+		want := []imap.Address{{Mailbox: "user-from", Host: "domain.org"}}
+		require.Equal(t, want, bufs[0].Envelope.From)
+		require.Equal(t, want, bufs[0].Envelope.Sender)
+		require.Equal(t, want, bufs[0].Envelope.ReplyTo)
+	})
+}
+
+// RFC 3501 6.4.4: BODY, TEXT and HEADER substring matching is case-insensitive.
+func TestSearchSubstringCaseInsensitive(t *testing.T) {
+	s := utils.TestServer(t)
+	s.Run()
+	defer s.Close()
+
+	username, password := s.Account()
+
+	cl := s.Client(utils.NewUnilateralRecorder())
+	defer cl.Close()
+	require.NoError(t, cl.Login(username, password).Wait())
+
+	appendMsg(t, cl, "INBOX", utils.CRLF("Subject: Hello World\n\nSome BODY Text\n"))
+	appendMsg(t, cl, "INBOX", utils.CRLF("Subject: other\n\nnothing\n"))
+
+	_, err := cl.Select("INBOX", nil).Wait()
+	require.NoError(t, err)
+
+	cases := map[string]imap.SearchCriteria{
+		"body":        {Body: []string{"some body text"}},
+		"body upper":  {Body: []string{"SOME BODY"}},
+		"text body":   {Text: []string{"body text"}},
+		"text header": {Text: []string{"hello world"}},
+		"body header": {Body: []string{"hello world"}}, // BODY must not match headers.
+		"header":      {Header: []imap.SearchCriteriaHeaderField{{Key: "Subject", Value: "HELLO"}}},
+	}
+	want := map[string][]uint32{
+		"body": {1}, "body upper": {1}, "text body": {1}, "text header": {1},
+		"body header": nil, "header": {1},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			data, err := cl.Search(&c, nil).Wait()
+			require.NoError(t, err)
+			require.Equal(t, want[name], data.AllSeqNums())
+		})
+	}
+}
+
 // Copies must keep the size of the original message, both as reported by
 // FETCH and as seen by SMALLER/LARGER searches.
 func TestCopyPreservesSize(t *testing.T) {
