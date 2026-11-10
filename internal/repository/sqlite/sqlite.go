@@ -11,6 +11,8 @@ import (
 
 type Cfg struct {
 	SlowLogThreshold time.Duration
+
+	MigrateOnOpen bool
 }
 
 type DB struct {
@@ -36,8 +38,10 @@ func New(path string, cfg Cfg) (DB, error) {
 
 	ret := DB{db: db}
 
-	if err := ret.migrationsUp(context.Background()); err != nil {
-		return DB{}, err
+	if cfg.MigrateOnOpen {
+		if err := ret.MigrationsUp(context.Background()); err != nil {
+			return DB{}, err
+		}
 	}
 
 	return ret, nil
@@ -62,7 +66,7 @@ func NewMemory(cfg Cfg) (DB, error) {
 
 	ret := DB{db: db}
 
-	if err := ret.migrationsUp(context.Background()); err != nil {
+	if err := ret.MigrationsUp(context.Background()); err != nil {
 		return DB{}, err
 	}
 

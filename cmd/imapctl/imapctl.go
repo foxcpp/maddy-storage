@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -22,7 +23,9 @@ import (
 	metaonlysqlite "github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlcommon"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher/scan"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
+	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
 	storagecli "github.com/foxcpp/maddy-storage/pkg/cli"
 	"github.com/urfave/cli/v2"
@@ -51,11 +54,16 @@ func storageInit(c *cli.Context) (storagecli.App, error) {
 	if c.IsSet("blobfs") {
 		blobStore = storefs.New(c.Path("blobfs"))
 	}
+
+	var dbCommon sqlcommon.DB
 	if c.IsSet("sqlite") {
-		db, err := sqlite.New(c.Path("sqlite"), sqlite.Cfg{})
+		db, err := sqlite.New(c.Path("sqlite"), sqlite.Cfg{
+			MigrateOnOpen: false,
+		})
 		if err != nil {
 			return storagecli.App{}, cli.Exit("Unable to open SQLite DB: "+err.Error(), 2)
 		}
+		dbCommon = db
 
 		accountsRepo = accountsqlite.New(db)
 		folderRepo = foldersqlite.New(db)
@@ -96,6 +104,7 @@ func storageInit(c *cli.Context) (storagecli.App, error) {
 			tempBlobStore,
 			changelogRepo,
 		),
+		DB: dbCommon,
 	}, nil
 }
 
@@ -143,7 +152,16 @@ func main() {
 
 	app.Commands = storagecli.BuildCommands(storageInit)
 
-	if err := app.Run(os.Args); err != nil {
+	logCfg := zap.NewProductionConfig()
+	logCfg.Encoding = "console"
+	logCfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	log, err := logCfg.Build()
+	if err != nil {
+		panic(err)
+	}
+	ctx := contextlib.WithLogger(context.Background(), log)
+
+	if err := app.RunContext(ctx, os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}

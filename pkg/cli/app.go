@@ -1,10 +1,12 @@
 package storagecli
 
 import (
+	"github.com/urfave/cli/v2"
+
 	accountusecase "github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
-	"github.com/urfave/cli/v2"
+	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
 )
 
 type AppProvider func(ctx *cli.Context) (App, error)
@@ -13,10 +15,28 @@ type App struct {
 	Accounts accountusecase.Account
 	Folders  folderusecase.Folder
 	Message  messageusecase.Usecase
+
+	DB sqlcommon.DB
 }
 
 func BuildCommands(provider AppProvider) cli.Commands {
 	return cli.Commands{
+		{
+			Name:  "db",
+			Usage: "Global DB management commands",
+			Subcommands: []*cli.Command{
+				{
+					Name:   "migrations-up",
+					Usage:  "Update DB schema to the latest revision (logs nothing on success)",
+					Action: provider.migrationsUp,
+				},
+				{
+					Name:   "migrations-down",
+					Usage:  "Update DB schema to the previous revision",
+					Action: provider.migrationsDown,
+				},
+			},
+		},
 		{
 			Name:  "account",
 			Usage: "Storage account management",

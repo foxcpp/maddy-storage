@@ -15,4 +15,6 @@ type DB interface {
 	Close() error
 	IsUniqueConstraintError(err error) bool
 	IsForeignConstraintError(err error) bool
+	MigrationsUp(ctx context.Context) error
+	MigrationsDown(ctx context.Context) error
 }
