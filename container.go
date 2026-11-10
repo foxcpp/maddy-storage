@@ -1,4 +1,4 @@
-package maddy_storage
+package maddystorage
 
 import (
 	"context"
@@ -19,7 +19,9 @@ import (
 	metaonlysqlite "github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher/scan"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
+	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
+	storagecli "github.com/foxcpp/maddy-storage/pkg/cli"
 	"github.com/foxcpp/maddy-storage/pkg/delivery"
 	"github.com/foxcpp/maddy-storage/pkg/imap2"
 	"github.com/foxcpp/maddy-storage/pkg/managed"
@@ -57,6 +59,8 @@ type Container struct {
 	Message  messageusecase.Usecase
 	Watcher  folder.Watcher
 	Recents  recent.Tracker
+
+	db sqlcommon.DB
 }
 
 type StubAuth struct{}
@@ -119,7 +123,19 @@ func NewUsingSQLite(
 		changelogRepo,
 	)
 
+	c.db = db
+
 	return c, nil
+}
+
+func (c Container) CLI() (storagecli.App, error) {
+	return storagecli.App{
+		Accounts: c.Accounts,
+		Folders:  c.Folders,
+		Message:  c.Message,
+
+		DB: c.db,
+	}, nil
 }
 
 func (c Container) IMAP(logger *zap.Logger, cfg imap2.Config) *imap2.Backend {

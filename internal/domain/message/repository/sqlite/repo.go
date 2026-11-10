@@ -8,6 +8,7 @@ import (
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
@@ -18,36 +19,22 @@ import (
 )
 
 type repo struct {
-	db sqlcommon.DB
+	db       *sqlite.DB
+	executor sqlcommon.Tx
 }
 
-func New(db sqlcommon.DB) message.Repo {
-	return repo{db: db}
-}
-
-func blob(id ulid.ULID) j.BlobExpression {
-	return j.Blob(id[:])
-}
-
-func blobs(ids []ulid.ULID) []j.Expression {
-	res := make([]j.Expression, len(ids))
-	for i, id := range ids {
-		res[i] = blob(id)
-	}
-	return res
-}
-
-func strs(ss []string) []j.Expression {
-	res := make([]j.Expression, len(ss))
-	for i, s := range ss {
-		res[i] = j.String(s)
-	}
-	return res
+func New(db sqlite.DB) message.Repo {
+	return repo{db: &db, executor: db}
 }
 
 func (r repo) inTx(ctx context.Context, fn func(r repo) error) error {
-	return r.db.Tx(ctx, false, func(tx sqlcommon.DB) error {
-		return fn(repo{db: tx})
+	if r.db == nil {
+		contextlib.Logger(ctx).Error("nested transactions not supported, reusing outer transaction")
+		return fn(r)
+	}
+
+	return r.db.Tx(ctx, false, func(tx sqlcommon.Tx) error {
+		return fn(repo{executor: tx})
 	})
 }
 
@@ -56,9 +43,9 @@ func (r repo) selectFlags(ctx context.Context, ids []ulid.ULID) ([]model.Message
 
 	stmt := j.SELECT(table.MessageFlags.AllColumns).
 		FROM(table.MessageFlags).
-		WHERE(table.MessageFlags.MessageID.IN(blobs(ids)...)).
+		WHERE(table.MessageFlags.MessageID.IN(sqlite.ULIDList(ids)...)).
 		ORDER_BY(table.MessageFlags.Flag.ASC())
-	if err := r.db.Query(ctx, stmt, &dtos); err != nil {
+	if err := r.executor.Query(ctx, stmt, &dtos); err != nil {
 		return nil, err
 	}
 
@@ -125,20 +112,20 @@ func (r repo) GetByIDs(ctx context.Context, modSeqGt folder.ModSeq, ids ...ulid.
 
 	partsStmt := j.SELECT(table.MessageParts.AllColumns).
 		FROM(table.MessageParts).
-		WHERE(table.MessageParts.MessageID.IN(blobs(ids)...)).
+		WHERE(table.MessageParts.MessageID.IN(sqlite.ULIDList(ids)...)).
 		ORDER_BY(table.MessageParts.Order.ASC())
-	if err := r.db.Query(ctx, partsStmt, &parts); err != nil {
+	if err := r.executor.Query(ctx, partsStmt, &parts); err != nil {
 		return nil, storeerrors.InternalError{Reason: fmt.Errorf("find parts: %w", err)}
 	}
 
-	where := table.Messages.ID.IN(blobs(ids)...)
+	where := table.Messages.ID.IN(sqlite.ULIDList(ids)...)
 	if modSeqGt != 0 {
 		where = where.AND(table.Messages.Modseq.GT(j.Int(int64(modSeqGt))))
 	}
 	msgsStmt := j.SELECT(table.Messages.AllColumns).
 		FROM(table.Messages).
 		WHERE(where)
-	if err := r.db.Query(ctx, msgsStmt, &msgs); err != nil {
+	if err := r.executor.Query(ctx, msgsStmt, &msgs); err != nil {
 		return nil, storeerrors.InternalError{Reason: fmt.Errorf("find msgs: %w", err)}
 	}
 
@@ -207,7 +194,7 @@ func (r repo) Create(ctx context.Context, msgs ...message.Msg) error {
 			}
 
 			stmt := table.Messages.INSERT(table.Messages.AllColumns).MODEL(msg)
-			if _, err := tx.db.Exec(ctx, stmt); err != nil {
+			if _, err := tx.executor.Exec(ctx, stmt); err != nil {
 				// TODO: Foreign key constraints, etc.
 				return storeerrors.InternalError{Reason: fmt.Errorf("create msg: %w", err)}
 			}
@@ -220,7 +207,7 @@ func (r repo) Create(ctx context.Context, msgs ...message.Msg) error {
 				continue
 			}
 			stmt = table.MessageParts.INSERT(table.MessageParts.AllColumns).MODELS(parts)
-			if _, err := tx.db.Exec(ctx, stmt); err != nil {
+			if _, err := tx.executor.Exec(ctx, stmt); err != nil {
 				// TODO: Foreign key constraints, etc.
 				return storeerrors.InternalError{Reason: fmt.Errorf("create parts: %w", err)}
 			}
@@ -240,7 +227,7 @@ func (r repo) addFlags(ctx context.Context, flags []model.MessageFlags) (bool, e
 		MODELS(flags).
 		ON_CONFLICT(table.MessageFlags.MessageID, table.MessageFlags.Flag).
 		DO_NOTHING()
-	res, err := r.db.Exec(ctx, stmt)
+	res, err := r.executor.Exec(ctx, stmt)
 	if err != nil {
 		return false, err
 	}
@@ -259,8 +246,8 @@ func (r repo) DeleteByID(ctx context.Context, ids ...ulid.ULID) error {
 		return nil
 	}
 
-	stmt := table.Messages.DELETE().WHERE(table.Messages.ID.IN(blobs(ids)...))
-	if _, err := r.db.Exec(ctx, stmt); err != nil {
+	stmt := table.Messages.DELETE().WHERE(table.Messages.ID.IN(sqlite.ULIDList(ids)...))
+	if _, err := r.executor.Exec(ctx, stmt); err != nil {
 		// TODO: Foreign key constraints, etc.
 		return storeerrors.InternalError{Reason: fmt.Errorf("delete msg: %w", err)}
 	}
@@ -280,9 +267,9 @@ func (r repo) lockMsgs(ctx context.Context, ids []ulid.ULID, modSeqLe, newModSeq
 	var dtos []model.Messages
 	sel := j.SELECT(table.Messages.ID, table.Messages.Modseq).
 		FROM(table.Messages).
-		WHERE(table.Messages.ID.IN(blobs(ids)...).
+		WHERE(table.Messages.ID.IN(sqlite.ULIDList(ids)...).
 			AND(table.Messages.Modseq.LT_EQ(j.Int(int64(modSeqLe)))))
-	if err := r.db.Query(ctx, sel, &dtos); err != nil {
+	if err := r.executor.Query(ctx, sel, &dtos); err != nil {
 		return nil, storeerrors.InternalError{Reason: err}
 	}
 	prevAll := make(map[ulid.ULID]folder.ModSeq, len(dtos))
@@ -300,10 +287,10 @@ func (r repo) lockMsgs(ctx context.Context, ids []ulid.ULID, modSeqLe, newModSeq
 			table.Messages.Modseq.SET(j.Int(int64(newModSeq))),
 			table.Messages.UpdatedAt.SET(sqlite.Timestamp(time.Now())),
 		).
-		WHERE(table.Messages.ID.IN(blobs(ids)...).
+		WHERE(table.Messages.ID.IN(sqlite.ULIDList(ids)...).
 			AND(table.Messages.Modseq.LT_EQ(j.Int(int64(modSeqLe))))).
 		RETURNING(table.Messages.ID)
-	if err := r.db.Query(ctx, upd, &dtos); err != nil {
+	if err := r.executor.Query(ctx, upd, &dtos); err != nil {
 		return nil, storeerrors.InternalError{Reason: fmt.Errorf("update modseq: %w", err)}
 	}
 	for _, d := range dtos {
@@ -386,8 +373,8 @@ func (r repo) ReplaceFlags(ctx context.Context, ids []ulid.ULID, flags []string,
 		}
 
 		stmt := table.MessageFlags.DELETE().
-			WHERE(table.MessageFlags.MessageID.IN(blobs(lockedIDs)...))
-		if _, err := tx.db.Exec(ctx, stmt); err != nil {
+			WHERE(table.MessageFlags.MessageID.IN(sqlite.ULIDList(lockedIDs)...))
+		if _, err := tx.executor.Exec(ctx, stmt); err != nil {
 			return storeerrors.InternalError{Reason: fmt.Errorf("delete flags: %w", err)}
 		}
 
@@ -436,10 +423,10 @@ func (r repo) DeleteFlags(ctx context.Context, ids []ulid.ULID, flags []string, 
 
 		var deleted []model.MessageFlags
 		stmt := table.MessageFlags.DELETE().
-			WHERE(table.MessageFlags.MessageID.IN(blobs(lockedIDs)...).
-				AND(table.MessageFlags.Flag.IN(strs(flags)...))).
+			WHERE(table.MessageFlags.MessageID.IN(sqlite.ULIDList(lockedIDs)...).
+				AND(table.MessageFlags.Flag.IN(sqlite.StringValues(flags)...))).
 			RETURNING(table.MessageFlags.MessageID)
-		if err := tx.db.Query(ctx, stmt, &deleted); err != nil {
+		if err := tx.executor.Query(ctx, stmt, &deleted); err != nil {
 			return storeerrors.InternalError{Reason: fmt.Errorf("delete flags: %w", err)}
 		}
 
@@ -490,8 +477,8 @@ func (r repo) TouchMsgs(ctx context.Context, ids []ulid.ULID, newModSeq folder.M
 			table.Messages.Modseq.SET(j.IntExp(j.Func("max", table.Messages.Modseq, j.Int(int64(newModSeq))))),
 			table.Messages.UpdatedAt.SET(sqlite.Timestamp(time.Now())),
 		).
-		WHERE(table.Messages.ID.IN(blobs(ids)...))
-	if _, err := r.db.Exec(ctx, stmt); err != nil {
+		WHERE(table.Messages.ID.IN(sqlite.ULIDList(ids)...))
+	if _, err := r.executor.Exec(ctx, stmt); err != nil {
 		return storeerrors.InternalError{Reason: fmt.Errorf("update modseq: %w", err)}
 	}
 
@@ -508,9 +495,9 @@ func (r repo) DeletableExternalIDs(ctx context.Context, ids []string) ([]string,
 	var dtos []model.MessagesExternalIDCounters
 	stmt := j.SELECT(table.MessagesExternalIDCounters.ExternalID).
 		FROM(table.MessagesExternalIDCounters).
-		WHERE(table.MessagesExternalIDCounters.ExternalID.IN(strs(ids)...).
+		WHERE(table.MessagesExternalIDCounters.ExternalID.IN(sqlite.StringValues(ids)...).
 			AND(table.MessagesExternalIDCounters.Copies.EQ(j.Int(0))))
-	if err := r.db.Query(ctx, stmt, &dtos); err != nil {
+	if err := r.executor.Query(ctx, stmt, &dtos); err != nil {
 		return nil, storeerrors.InternalError{Reason: err}
 	}
 
@@ -538,7 +525,7 @@ func (r repo) DanglingMsgIDs(ctx context.Context, limit int) ([]ulid.ULID, error
 		))).
 		ORDER_BY(table.Messages.ID.ASC()).
 		LIMIT(int64(limit))
-	if err := r.db.Query(ctx, stmt, &dtos); err != nil {
+	if err := r.executor.Query(ctx, stmt, &dtos); err != nil {
 		return nil, storeerrors.InternalError{Reason: err}
 	}
 

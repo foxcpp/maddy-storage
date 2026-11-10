@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/emersion/go-imap/v2"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
@@ -171,7 +172,7 @@ func TestMessage_CreateGetByID(t *testing.T) {
 	f := newFixture(t)
 
 	want := f.store(
-		withFlags(`\Seen`, `\Flagged`),
+		withFlags(string(imap.FlagSeen), string(imap.FlagFlagged)),
 		withParts(
 			inlinePart(0, message.Path{1}, "hello"),
 			externalPart(1, message.Path{2}, "ext-1"),
@@ -292,9 +293,9 @@ func TestMessage_DeleteByIDNoIDs(t *testing.T) {
 func TestMessage_AddFlags(t *testing.T) {
 	f := newFixture(t)
 
-	m := f.store(withModSeq(3), withFlags(`\Seen`))
+	m := f.store(withModSeq(3), withFlags(string(imap.FlagSeen)))
 
-	changed, err := f.repo.AddFlags(f.ctx, []ulid.ULID{m.ID}, []string{`\Flagged`, `\Seen`}, 3, 7)
+	changed, err := f.repo.AddFlags(f.ctx, []ulid.ULID{m.ID}, []string{string(imap.FlagFlagged), string(imap.FlagSeen)}, 3, 7)
 	require.NoError(t, err)
 
 	require.Len(t, changed, 1)
@@ -304,20 +305,20 @@ func TestMessage_AddFlags(t *testing.T) {
 		ModSeq:         7,
 		PreviousModSeq: 3,
 	}, changed[m.ID])
-	require.Equal(t, []string{`\Flagged`, `\Seen`}, sorted(changed[m.ID].Flags))
+	require.Equal(t, []string{string(imap.FlagFlagged), string(imap.FlagSeen)}, sorted(changed[m.ID].Flags))
 
 	got := f.get(m.ID)
 	require.Equal(t, folder.ModSeq(7), got.ModSeq)
-	require.Equal(t, []string{`\Flagged`, `\Seen`}, f.flagsOf(m.ID))
+	require.Equal(t, []string{string(imap.FlagFlagged), string(imap.FlagSeen)}, f.flagsOf(m.ID))
 	require.True(t, got.UpdatedAt.After(m.UpdatedAt), "updated_at must be bumped")
 }
 
 func TestMessage_AddFlagsAlreadyPresentIsNoChange(t *testing.T) {
 	f := newFixture(t)
 
-	m := f.store(withFlags(`\Seen`))
+	m := f.store(withFlags(string(imap.FlagSeen)))
 
-	changed, err := f.repo.AddFlags(f.ctx, []ulid.ULID{m.ID}, []string{`\Seen`}, 1, 2)
+	changed, err := f.repo.AddFlags(f.ctx, []ulid.ULID{m.ID}, []string{string(imap.FlagSeen)}, 1, 2)
 	require.NoError(t, err)
 	require.Empty(t, changed)
 }
@@ -425,6 +426,7 @@ func TestMessage_TouchMsgsNoIDs(t *testing.T) {
 	require.Equal(t, folder.ModSeq(3), f.get(m.ID).ModSeq)
 }
 
+// nolint:goconst // Lots of repeated folder names, that is fine for tests.
 func TestMessage_DeletableExternalIDs(t *testing.T) {
 	f := newFixture(t)
 
@@ -503,12 +505,10 @@ func insertEntry(t *testing.T, f *fixture, fldID, msgID ulid.ULID, uid int64) {
 	t.Helper()
 
 	_, err := f.db.Exec(f.ctx, table.FolderEntries.INSERT(table.FolderEntries.AllColumns).MODEL(model.FolderEntries{
-		FolderID: fldID[:], MessageID: ptr(msgID[:]), UID: uid, Modseq: 1, CreatedAtModseq: 1, CreatedAt: time.Now(),
+		FolderID: fldID[:], MessageID: new(msgID[:]), UID: uid, Modseq: 1, CreatedAtModseq: 1, CreatedAt: time.Now(),
 	}))
 	require.NoError(t, err)
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func TestMessage_FlagOpsWithEmptyFlagListAreNoop(t *testing.T) {
 	f := newFixture(t)

@@ -176,7 +176,7 @@ func TestServer(t *testing.T) *Server {
 
 	t.Log("db implementation:", *flagDBImpl)
 	if *flagDBImpl == "sqlite" {
-		t.Log("sqlite3 driver:", sqlite.Implementation())
+		t.Log("sqlite3 driver:", sqlite.DefaultImplementation())
 
 		var (
 			db  sqlite.DB
@@ -185,9 +185,13 @@ func TestServer(t *testing.T) *Server {
 		if *flagSqliteFile {
 			dir := t.TempDir()
 			t.Log("temporary directory:", dir)
-			db, err = sqlite.New(filepath.Join(dir, "test.db"), sqlite.Cfg{})
+			db, err = sqlite.New(filepath.Join(dir, "test.db"), sqlite.Cfg{
+				SlowLogThreshold: time.Second,
+			})
 		} else {
-			db, err = sqlite.NewMemory(sqlite.Cfg{})
+			db, err = sqlite.NewMemory(sqlite.Cfg{
+				SlowLogThreshold: time.Second,
+			})
 		}
 		if err != nil {
 			t.Fatal(err)

@@ -9,6 +9,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
@@ -23,7 +24,9 @@ type Cfg struct {
 
 type Searcher struct {
 	cfg Cfg
-	db  sqlcommon.DB
+
+	db       sqlcommon.DB
+	executor sqlcommon.Tx
 }
 
 var (
@@ -46,8 +49,9 @@ var (
 
 func New(db sqlcommon.DB, cfg Cfg) *Searcher {
 	return &Searcher{
-		cfg: cfg,
-		db:  db,
+		cfg:      cfg,
+		db:       db,
+		executor: db,
 	}
 }
 
@@ -409,14 +413,14 @@ func (s *Searcher) searchAggregated(ctx context.Context, accountID ulid.ULID, co
 
 	if !opts.GroupByFolder {
 		var found aggregatedRow
-		if err := s.db.Query(ctx, stmt, &found); err != nil {
+		if err := s.executor.Query(ctx, stmt, &found); err != nil {
 			return searcher.SearchResult{}, err
 		}
 		return found.asModel(), nil
 	}
 
 	var found []aggregatedRow
-	if err := s.db.Query(ctx, stmt.GROUP_BY(e.FolderID), &found); err != nil {
+	if err := s.executor.Query(ctx, stmt.GROUP_BY(e.FolderID), &found); err != nil {
 		return searcher.SearchResult{}, err
 	}
 
@@ -493,7 +497,7 @@ func (s *Searcher) searchAll(ctx context.Context, accountID ulid.ULID, cond *sea
 	}
 
 	var rows []foundRow
-	if err := s.db.Query(ctx, stmt, &rows); err != nil {
+	if err := s.executor.Query(ctx, stmt, &rows); err != nil {
 		return searcher.SearchResult{}, err
 	}
 
@@ -532,10 +536,15 @@ func (s *Searcher) SearchFolder(ctx context.Context, accountID, folderID ulid.UL
 }
 
 func (s *Searcher) Tx(ctx context.Context, inTx func(ctx context.Context, s searcher.Searcher) error) error {
-	return s.db.Tx(ctx, true, func(tx sqlcommon.DB) error {
+	if s.db == nil {
+		contextlib.Logger(ctx).Error("nested transactions not supported, reusing outer transaction")
+		return inTx(ctx, s)
+	}
+
+	return s.db.Tx(ctx, true, func(tx sqlcommon.Tx) error {
 		return inTx(ctx, &Searcher{
-			cfg: s.cfg,
-			db:  tx,
+			cfg:      s.cfg,
+			executor: tx,
 		})
 	})
 }

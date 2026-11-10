@@ -4,39 +4,42 @@ import (
 	"context"
 	"database/sql"
 	"time"
-
-	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
-	"gorm.io/gorm"
 )
 
 type Cfg struct {
 	SlowLogThreshold time.Duration
-
-	MigrateOnOpen bool
+	MigrateOnOpen    bool
 }
 
 type DB struct {
-	db *gorm.DB
+	cfg *Cfg
+	db  *sql.DB
+
+	// Populated for value passed to Tx.
+	tx *sql.Tx
 }
 
-func Implementation() string {
+type ImplementationType string
+
+const (
+	ImplementationCGo     ImplementationType = "cgo"     // github.com/mattn/go-sqlite3
+	ImplementationModernc ImplementationType = "modernc" // modernc.org/sqlite
+)
+
+func DefaultImplementation() ImplementationType {
 	return impl
 }
 
 func New(path string, cfg Cfg) (DB, error) {
-	db, err := gorm.Open(open(path), &gorm.Config{
-		Logger: sqlcommon.GormLogger{
-			SlowThreshold: cfg.SlowLogThreshold,
-			SkipLogError: func(err error) bool {
-				return IsForeignConstraintError(err) || IsUniqueConstraintError(err)
-			},
-		},
-	})
+	db, err := open(path, &cfg)
 	if err != nil {
 		return DB{}, err
 	}
 
-	ret := DB{db: db}
+	ret := DB{
+		cfg: &cfg,
+		db:  db,
+	}
 
 	if cfg.MigrateOnOpen {
 		if err := ret.MigrationsUp(context.Background()); err != nil {
@@ -48,23 +51,15 @@ func New(path string, cfg Cfg) (DB, error) {
 }
 
 func NewMemory(cfg Cfg) (DB, error) {
-	db, err := gorm.Open(open(":memory:"), &gorm.Config{
-		Logger: sqlcommon.GormLogger{
-			SlowThreshold: cfg.SlowLogThreshold,
-		},
-	})
+	db, err := open(":memory:", &cfg)
 	if err != nil {
 		return DB{}, err
 	}
 
-	sqlDB, err := db.DB()
-	if err != nil {
-		return DB{}, err
-	}
-	sqlDB.SetMaxIdleConns(1)
-	sqlDB.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(1)
 
-	ret := DB{db: db}
+	ret := DB{cfg: &cfg, db: db}
 
 	if err := ret.MigrationsUp(context.Background()); err != nil {
 		return DB{}, err
@@ -73,35 +68,12 @@ func NewMemory(cfg Cfg) (DB, error) {
 	return ret, nil
 }
 
-func (db DB) Tx(ctx context.Context, readOnly bool, fn func(tx sqlcommon.DB) error) error {
-	return db.Gorm(ctx).Transaction(func(tx *gorm.DB) error {
-		return fn(DB{db: tx})
-	}, &sql.TxOptions{
-		ReadOnly: readOnly,
-	})
-}
-
-func (db DB) Gorm(ctx context.Context) *gorm.DB {
-	return db.db.Session(&gorm.Session{
-		//SkipDefaultTransaction: true,
-		Context: ctx,
-	})
-}
-
-func (db DB) SQL() (*sql.DB, error) {
-	return db.db.DB()
+func (db DB) SQL() *sql.DB {
+	return db.db
 }
 
 func (db DB) Close() error {
-	sqlDB, err := db.SQL()
-	if err != nil {
-		return nil
-	}
-	return sqlDB.Close()
-}
-
-func (db DB) Dialector() string {
-	return db.db.Dialector.Name()
+	return db.db.Close()
 }
 
 func (db DB) IsUniqueConstraintError(err error) bool {

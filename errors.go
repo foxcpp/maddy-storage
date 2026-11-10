@@ -1,4 +1,4 @@
-package maddy_storage
+package maddystorage
 
 func IsSerializationError(err error) bool {
 	return false // TODO

@@ -53,7 +53,7 @@ go test ./tests/imap2/...
 go test -tags imaptest ./tests/imap2/ -test.imaptest=/path/to/imaptest
 ```
 
-CGo vs non-CGo SQLite: both `mattn/go-sqlite3` (CGo) and `modernc.org/sqlite` (pure Go) are supported via build tags — see `open_cgo.go`/`open_non_cgo.go` and `errors_cgo.go`/`errors_non_cgo.go`.
+CGo vs non-CGo SQLite: both `mattn/go-sqlite3` (CGo) and `modernc.org/sqlite` (pure Go) are supported via build tags — see `implementation_cgo.go`/`implementation_modernc.go`.
 
 ## Conventions
 

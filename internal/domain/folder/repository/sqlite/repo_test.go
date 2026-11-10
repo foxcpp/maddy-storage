@@ -166,12 +166,10 @@ func uids(es []folder.Entry) []uint32 {
 	return res
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func requireErrIs[T error](t *testing.T, err error, want T) {
 	t.Helper()
 	require.Error(t, err)
-	require.IsType(t, want, err)
+	require.ErrorIs(t, want, err)
 	require.Equal(t, want.Error(), err.Error())
 }
 
@@ -319,10 +317,11 @@ func TestFolder_Delete(t *testing.T) {
 	require.NoError(t, f.repo.Delete(f.ctx, ulid.Make()), "deleting missing folder is not an error")
 }
 
+// nolint:goconst // Lots of repeated strings in folder names
 func TestFolder_GetByAccount(t *testing.T) {
 	f := newFixture(t)
 
-	inbox := f.mkFolder(f.acct, nil, "INBOX")
+	inbox := f.mkFolder(f.acct, nil, folder.FolderINBOX)
 	work := f.mkFolder(f.acct, nil, "Work")
 	f.mkFolder(f.acct, work, "Proj_100%")
 	archive := f.mkFolder(f.acct, work, "archive")
@@ -345,41 +344,41 @@ func TestFolder_GetByAccount(t *testing.T) {
 		order  folder.Order
 		want   []string
 	}{
-		// Ordering is by folder name ("INBOX" < "Proj_100%" < "Work" < "archive"), not path.
+		// Ordering is by folder name (folder.FolderINBOX < "Proj_100%" < "Work" < "archive"), not path.
 		{"all by name", folder.Filter{}, folder.OrderByName,
-			[]string{"INBOX", "Work/Proj_100%", "Work", "Work/archive"}},
+			[]string{folder.FolderINBOX, "Work/Proj_100%", "Work", "Work/archive"}},
 		{"all by name desc", folder.Filter{}, folder.OrderByNameDesc,
-			[]string{"Work/archive", "Work", "Work/Proj_100%", "INBOX"}},
+			[]string{"Work/archive", "Work", "Work/Proj_100%", folder.FolderINBOX}},
 		{"all by created", folder.Filter{}, folder.OrderByCreatedAt,
-			[]string{"INBOX", "Work", "Work/Proj_100%", "Work/archive"}},
+			[]string{folder.FolderINBOX, "Work", "Work/Proj_100%", "Work/archive"}},
 		{"all by created desc", folder.Filter{}, folder.OrderByCreatedAtDesc,
-			[]string{"Work/archive", "Work/Proj_100%", "Work", "INBOX"}},
+			[]string{"Work/archive", "Work/Proj_100%", "Work", folder.FolderINBOX}},
 		// All sort orders are equal (Update does not persist it), falls back to name.
 		{"all by sort order", folder.Filter{}, folder.OrderBySortOrder,
-			[]string{"INBOX", "Work/Proj_100%", "Work", "Work/archive"}},
-		{"name contains", folder.Filter{NameContains: ptr("roj_1")}, folder.OrderByName,
+			[]string{folder.FolderINBOX, "Work/Proj_100%", "Work", "Work/archive"}},
+		{"name contains", folder.Filter{NameContains: new("roj_1")}, folder.OrderByName,
 			[]string{"Work/Proj_100%"}},
-		{"name contains escapes percent", folder.Filter{NameContains: ptr("0%")}, folder.OrderByName,
+		{"name contains escapes percent", folder.Filter{NameContains: new("0%")}, folder.OrderByName,
 			[]string{"Work/Proj_100%"}},
-		{"name contains percent no match", folder.Filter{NameContains: ptr("%rk")}, folder.OrderByName,
+		{"name contains percent no match", folder.Filter{NameContains: new("%rk")}, folder.OrderByName,
 			nil},
-		{"exact path", folder.Filter{Path: ptr("Work")}, folder.OrderByName,
+		{"exact path", folder.Filter{Path: new("Work")}, folder.OrderByName,
 			[]string{"Work"}},
-		{"path prefix", folder.Filter{PathPrefix: ptr("Work/")}, folder.OrderByName,
+		{"path prefix", folder.Filter{PathPrefix: new("Work/")}, folder.OrderByName,
 			[]string{"Work/Proj_100%", "Work/archive"}},
 		{"parent id", folder.Filter{ParentID: &work.ID}, folder.OrderByName,
 			[]string{"Work/Proj_100%", "Work/archive"}},
-		{"parent path", folder.Filter{ParentPath: ptr("Work")}, folder.OrderByName,
+		{"parent path", folder.Filter{ParentPath: new("Work")}, folder.OrderByName,
 			[]string{"Work/Proj_100%", "Work/archive"}},
-		{"subscribed", folder.Filter{Subscribed: ptr(true)}, folder.OrderByName,
-			[]string{"INBOX"}},
-		{"not subscribed", folder.Filter{Subscribed: ptr(false)}, folder.OrderByName,
+		{"subscribed", folder.Filter{Subscribed: new(true)}, folder.OrderByName,
+			[]string{folder.FolderINBOX}},
+		{"not subscribed", folder.Filter{Subscribed: new(false)}, folder.OrderByName,
 			[]string{"Work/Proj_100%", "Work", "Work/archive"}},
-		{"has role", folder.Filter{HasRole: ptr(true)}, folder.OrderByName,
-			[]string{"INBOX", "Work/archive"}},
-		{"no role", folder.Filter{HasRole: ptr(false)}, folder.OrderByName,
+		{"has role", folder.Filter{HasRole: new(true)}, folder.OrderByName,
+			[]string{folder.FolderINBOX, "Work/archive"}},
+		{"no role", folder.Filter{HasRole: new(false)}, folder.OrderByName,
 			[]string{"Work/Proj_100%", "Work"}},
-		{"role", folder.Filter{Role: ptr(folder.RoleArchive)}, folder.OrderByName,
+		{"role", folder.Filter{Role: new(folder.RoleArchive)}, folder.OrderByName,
 			[]string{"Work/archive"}},
 		{"regex prefix", folder.Filter{PathRegex: []*regexp.Regexp{re(`^Work/.*$`)}}, folder.OrderByName,
 			[]string{"Work/Proj_100%", "Work/archive"}},
@@ -388,10 +387,10 @@ func TestFolder_GetByAccount(t *testing.T) {
 		// Callers only pass anchored patterns.
 		{"regex anchored literal", folder.Filter{PathRegex: []*regexp.Regexp{re(`^Work$`)}}, folder.OrderByName,
 			[]string{"Work"}},
-		{"regex with filter", folder.Filter{PathRegex: []*regexp.Regexp{re(`^Work`)}, HasRole: ptr(true)}, folder.OrderByName,
+		{"regex with filter", folder.Filter{PathRegex: []*regexp.Regexp{re(`^Work`)}, HasRole: new(true)}, folder.OrderByName,
 			[]string{"Work/archive"}},
 		{"several regexes, no duplicates", folder.Filter{PathRegex: []*regexp.Regexp{re(`^Work`), re(`^Work/`), re(`^INBOX$`)}}, folder.OrderByName,
-			[]string{"Work/Proj_100%", "Work", "Work/archive", "INBOX"}},
+			[]string{"Work/Proj_100%", "Work", "Work/archive", folder.FolderINBOX}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -410,7 +409,7 @@ func TestFolder_GetByAccount(t *testing.T) {
 	}
 
 	t.Run("returns all fields", func(t *testing.T) {
-		got, err := f.repo.GetByAccount(f.ctx, f.acct.ID, folder.Filter{Path: ptr("Work/archive")}, folder.OrderByName)
+		got, err := f.repo.GetByAccount(f.ctx, f.acct.ID, folder.Filter{Path: new("Work/archive")}, folder.OrderByName)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		require.Equal(t, archive.ID, got[0].ID)
@@ -548,11 +547,11 @@ func TestFolder_GetByAccount_UnderscoreIsNotWildcard(t *testing.T) {
 	f.mkFolder(f.acct, nil, "a_b")
 	f.mkFolder(f.acct, nil, "aXb")
 
-	got, err := f.repo.GetByAccount(f.ctx, f.acct.ID, folder.Filter{NameContains: ptr("a_b")}, folder.OrderByName)
+	got, err := f.repo.GetByAccount(f.ctx, f.acct.ID, folder.Filter{NameContains: new("a_b")}, folder.OrderByName)
 	require.NoError(t, err)
 	require.Equal(t, []string{"a_b"}, paths(got))
 
-	got, err = f.repo.GetByAccount(f.ctx, f.acct.ID, folder.Filter{PathPrefix: ptr("a_")}, folder.OrderByName)
+	got, err = f.repo.GetByAccount(f.ctx, f.acct.ID, folder.Filter{PathPrefix: new("a_")}, folder.OrderByName)
 	require.NoError(t, err)
 	require.Equal(t, []string{"a_b"}, paths(got))
 }
@@ -646,7 +645,7 @@ func TestFolder_Tx(t *testing.T) {
 func TestEntry_CreateAndGetByRange(t *testing.T) {
 	f := newFixture(t)
 
-	fld := f.mkFolder(f.acct, nil, "INBOX")
+	fld := f.mkFolder(f.acct, nil, folder.FolderINBOX)
 	other := f.mkFolder(f.acct, nil, "Other")
 	ids := f.mkEntries(fld, 6)
 	f.mkEntries(other, 2)
@@ -711,7 +710,7 @@ func TestEntry_CreateAndGetByRange(t *testing.T) {
 func TestEntry_GetByRange_SeqNum(t *testing.T) {
 	f := newFixture(t)
 
-	fld := f.mkFolder(f.acct, nil, "INBOX")
+	fld := f.mkFolder(f.acct, nil, folder.FolderINBOX)
 	f.mkEntries(fld, 5)
 
 	// Expunge UID 2 at modseq 10: sequence numbers at modseq >= 10 shift.
@@ -784,7 +783,7 @@ func (f *fixture) entryMsg(fld *folder.Folder, uid uint32) ulid.ULID {
 func TestEntry_GetByRange_AtSnapshot(t *testing.T) {
 	f := newFixture(t)
 
-	fld := f.mkFolder(f.acct, nil, "INBOX")
+	fld := f.mkFolder(f.acct, nil, folder.FolderINBOX)
 	f.mkEntries(fld, 4) // UIDs 1..4 created at modseq 1..4
 
 	_, err := f.repo.DeleteEntryByIDs(f.ctx, fld.ID, []ulid.ULID{f.entryMsg(fld, 1)}, 6)
@@ -822,7 +821,7 @@ func TestEntry_GetByRange_AtSnapshot(t *testing.T) {
 func TestEntry_GetByIDs(t *testing.T) {
 	f := newFixture(t)
 
-	fld := f.mkFolder(f.acct, nil, "INBOX")
+	fld := f.mkFolder(f.acct, nil, folder.FolderINBOX)
 	ids := f.mkEntries(fld, 4)
 
 	_, err := f.repo.DeleteEntryByIDs(f.ctx, fld.ID, ids[3:], 9)
@@ -839,7 +838,7 @@ func TestEntry_GetByIDs(t *testing.T) {
 func TestEntry_DeleteByIDs(t *testing.T) {
 	f := newFixture(t)
 
-	fld := f.mkFolder(f.acct, nil, "INBOX")
+	fld := f.mkFolder(f.acct, nil, folder.FolderINBOX)
 	ids := f.mkEntries(fld, 4)
 
 	got, err := f.repo.DeleteEntryByIDs(f.ctx, fld.ID, []ulid.ULID{ids[1], ids[2], ulid.Make()}, 20)
@@ -867,7 +866,7 @@ func TestEntry_DeleteByIDs(t *testing.T) {
 func TestEntry_DeleteByRange(t *testing.T) {
 	f := newFixture(t)
 
-	fld := f.mkFolder(f.acct, nil, "INBOX")
+	fld := f.mkFolder(f.acct, nil, folder.FolderINBOX)
 	f.mkEntries(fld, 5)
 
 	got, err := f.repo.DeleteEntryByRange(f.ctx, fld.ID, folder.Range{
@@ -936,7 +935,7 @@ func TestEntry_ReplaceEntries(t *testing.T) {
 func TestEntry_TouchEntries(t *testing.T) {
 	f := newFixture(t)
 
-	fld := f.mkFolder(f.acct, nil, "INBOX")
+	fld := f.mkFolder(f.acct, nil, folder.FolderINBOX)
 	ids := f.mkEntries(fld, 3) // modseq 1, 2, 3
 
 	got, err := f.repo.TouchEntries(f.ctx, fld.ID, []ulid.ULID{ids[0], ids[2]}, 2)
@@ -960,7 +959,7 @@ func TestEntry_TouchEntries(t *testing.T) {
 func TestEntry_DeletedEntries(t *testing.T) {
 	f := newFixture(t)
 
-	fld := f.mkFolder(f.acct, nil, "INBOX")
+	fld := f.mkFolder(f.acct, nil, folder.FolderINBOX)
 	ids := f.mkEntries(fld, 4)
 
 	_, err := f.repo.DeleteEntryByIDs(f.ctx, fld.ID, ids[:3], 9)
@@ -985,7 +984,7 @@ func TestEntry_DeletedEntries(t *testing.T) {
 func TestEntry_UsedFlags(t *testing.T) {
 	f := newFixture(t)
 
-	fld := f.mkFolder(f.acct, nil, "INBOX")
+	fld := f.mkFolder(f.acct, nil, folder.FolderINBOX)
 	ids := f.mkEntries(fld, 3)
 
 	f.addFlag(ids[0], `\Seen`)
@@ -1083,7 +1082,7 @@ func TestWatcher_Sync(t *testing.T) {
 	f := newFixture(t)
 	w := foldersqlite.NewWatcher(time.Millisecond, f.db)
 
-	fld := f.mkFolder(f.acct, nil, "INBOX")
+	fld := f.mkFolder(f.acct, nil, folder.FolderINBOX)
 	ids := f.mkEntries(fld, 4) // entry/message modseq 1..4
 
 	byUID := func(chs []folder.EntryChange) map[uint32]folder.EntryChange {

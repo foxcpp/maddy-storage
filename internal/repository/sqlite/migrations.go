@@ -13,11 +13,6 @@ import (
 var migrations embed.FS
 
 func (db DB) createGooseProvider(ctx context.Context) (*goose.Provider, error) {
-	sqlDB, err := db.SQL()
-	if err != nil {
-		return nil, err
-	}
-
 	migrationsFolder, err := fs.Sub(migrations, "migrations")
 	if err != nil {
 		return nil, err
@@ -25,7 +20,7 @@ func (db DB) createGooseProvider(ctx context.Context) (*goose.Provider, error) {
 
 	log := sqlcommon.GooseLogger{Ctx: ctx}
 
-	return goose.NewProvider(goose.DialectSQLite3, sqlDB, migrationsFolder,
+	return goose.NewProvider(goose.DialectSQLite3, db.db, migrationsFolder,
 		goose.WithLogger(log),
 		goose.WithVerbose(log.NeedsVerbose()),
 	)

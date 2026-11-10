@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func insertAccount(ctx context.Context, db sqlcommon.DB, id byte, name string) error {
+func insertAccount(ctx context.Context, tx sqlcommon.Tx, id byte, name string) error {
 	now := time.Now()
 	stmt := table.Accounts.INSERT(table.Accounts.AllColumns).MODEL(model.Accounts{
 		ID:        []byte{id},
@@ -23,11 +23,11 @@ func insertAccount(ctx context.Context, db sqlcommon.DB, id byte, name string) e
 		UpdatedAt: now,
 		Namespace: []byte("{}"),
 	})
-	_, err := db.Exec(ctx, stmt)
+	_, err := tx.Exec(ctx, stmt)
 	return err
 }
 
-func countAccounts(ctx context.Context, t *testing.T, db sqlcommon.DB) int {
+func countAccounts(ctx context.Context, t *testing.T, db sqlcommon.Tx) int {
 	t.Helper()
 
 	var dest struct{ Count int64 }
@@ -36,11 +36,7 @@ func countAccounts(ctx context.Context, t *testing.T, db sqlcommon.DB) int {
 	return int(dest.Count)
 }
 
-// Exec and Query must run on the transaction connection when called on the
-// DB passed to the Tx callback. NewMemory limits the pool to a single
-// connection so using the parent *sql.DB instead of the transaction would
-// block until the context expires.
-func TestTxRollbackCoversJetStatements(t *testing.T) {
+func TestTxRollback(t *testing.T) {
 	db, err := sqlite.NewMemory(sqlite.Cfg{})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -49,7 +45,7 @@ func TestTxRollbackCoversJetStatements(t *testing.T) {
 	defer cancel()
 
 	errRollback := errors.New("rollback")
-	err = db.Tx(ctx, false, func(tx sqlcommon.DB) error {
+	err = db.Tx(ctx, false, func(tx sqlcommon.Tx) error {
 		require.NoError(t, insertAccount(ctx, tx, 1, "tx-rollback"))
 		require.Equal(t, 1, countAccounts(ctx, t, tx), "tx must observe its own writes")
 		return errRollback
@@ -59,7 +55,7 @@ func TestTxRollbackCoversJetStatements(t *testing.T) {
 	require.Equal(t, 0, countAccounts(ctx, t, db), "rolled back insert must not be visible")
 }
 
-func TestTxCommitCoversJetStatements(t *testing.T) {
+func TestTxCommit(t *testing.T) {
 	db, err := sqlite.NewMemory(sqlite.Cfg{})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -67,34 +63,8 @@ func TestTxCommitCoversJetStatements(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err = db.Tx(ctx, false, func(tx sqlcommon.DB) error {
+	err = db.Tx(ctx, false, func(tx sqlcommon.Tx) error {
 		return insertAccount(ctx, tx, 1, "tx-commit")
-	})
-	require.NoError(t, err)
-
-	require.Equal(t, 1, countAccounts(ctx, t, db))
-}
-
-func TestTxNestedRollbackCoversJetStatements(t *testing.T) {
-	db, err := sqlite.NewMemory(sqlite.Cfg{})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	errRollback := errors.New("rollback")
-	err = db.Tx(ctx, false, func(tx sqlcommon.DB) error {
-		require.NoError(t, insertAccount(ctx, tx, 1, "outer"))
-
-		inner := tx.Tx(ctx, false, func(tx sqlcommon.DB) error {
-			require.NoError(t, insertAccount(ctx, tx, 2, "inner"))
-			return errRollback
-		})
-		require.ErrorIs(t, inner, errRollback)
-
-		require.Equal(t, 1, countAccounts(ctx, t, tx), "only the savepoint must be rolled back")
-		return nil
 	})
 	require.NoError(t, err)
 

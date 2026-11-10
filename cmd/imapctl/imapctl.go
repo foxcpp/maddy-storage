@@ -7,105 +7,53 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/foxcpp/maddy-storage/internal/domain/account"
-	accountsqlite "github.com/foxcpp/maddy-storage/internal/domain/account/repository/sqlite"
-	accountusecase "github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
+	maddy_storage "github.com/foxcpp/maddy-storage"
 	"github.com/foxcpp/maddy-storage/internal/domain/blob"
 	storefs "github.com/foxcpp/maddy-storage/internal/domain/blob/store/fs"
-	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
-	changelogsqlite "github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
-	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	"github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
-	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
-	"github.com/foxcpp/maddy-storage/internal/domain/message"
-	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
-	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
-	metaonlysqlite "github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlite"
-	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher/scan"
-	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
-	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
-	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
 	storagecli "github.com/foxcpp/maddy-storage/pkg/cli"
 	"github.com/urfave/cli/v2"
 	"go.uber.org/zap"
 )
 
 func storageInit(c *cli.Context) (storagecli.App, error) {
-	var (
-		accountsRepo  account.Repo
-		folderRepo    folder.Repo
-		imapRepo      folder.IMAPRepo
-		messageRepo   message.Repo
-		changelogRepo changelog.Repo
-		blobStore     blob.Store
-		tempBlobStore blob.Store
-		searcher      searcher.Searcher
-	)
-	tempBlobStore = storefs.New(os.TempDir())
+	tempBlobStore := storefs.New(os.TempDir())
+
+	logger := zap.L()
 	if c.IsSet("debug") {
 		dev, err := zap.NewDevelopment()
 		if err != nil {
 			return storagecli.App{}, err
 		}
 		zap.ReplaceGlobals(dev)
+		logger = dev
 	}
+
+	var blobStore blob.Store
 	if c.IsSet("blobfs") {
 		blobStore = storefs.New(c.Path("blobfs"))
+	} else {
+		return storagecli.App{}, cli.Exit("Missing blob path", 2)
 	}
 
-	var dbCommon sqlcommon.DB
+	var container *maddy_storage.Container
 	if c.IsSet("sqlite") {
-		db, err := sqlite.New(c.Path("sqlite"), sqlite.Cfg{
-			MigrateOnOpen: false,
-		})
+		var err error
+		container, err = maddy_storage.NewUsingSQLite(
+			maddy_storage.DefaultsSQLite,
+			c.Path("sqlite"),
+			maddy_storage.StubAuth{},
+			blobStore,
+			tempBlobStore)
 		if err != nil {
-			return storagecli.App{}, cli.Exit("Unable to open SQLite DB: "+err.Error(), 2)
+			logger.Fatal("failed to init db", zap.Error(err))
 		}
-		dbCommon = db
-
-		accountsRepo = accountsqlite.New(db)
-		folderRepo = foldersqlite.New(db)
-		messageRepo = messagesqlite.New(db)
-		changelogRepo = changelogsqlite.New(db)
-
-		searcher = scan.New(scan.Cfg{
-			BatchSize: 10,
-		}, metaonlysqlite.New(db, metaonlysqlite.Cfg{
-			MaxResults: 1000,
-		}), messageRepo, blobStore)
 	} else {
 		return storagecli.App{}, cli.Exit("Missing DB path", 2)
 	}
 
-	return storagecli.App{
-		Accounts: accountusecase.NewAccount(
-			accountusecase.Cfg{},
-			accountsRepo,
-			folderRepo,
-			imapRepo,
-			accountusecase.StubAuth{},
-			changelogRepo,
-		),
-		Folders: folderusecase.New(
-			folderRepo,
-			imapRepo,
-			changelogRepo,
-			searcher,
-		),
-		Message: messageusecase.New(
-			messageusecase.Config{},
-			folderRepo,
-			imapRepo,
-			messageRepo,
-			searcher,
-			blobStore,
-			tempBlobStore,
-			changelogRepo,
-		),
-		DB: dbCommon,
-	}, nil
+	return container.CLI()
 }
 
 func main() {

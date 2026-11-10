@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlcommon"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
@@ -22,11 +23,15 @@ import (
 )
 
 type repo struct {
-	db sqlcommon.DB
+	db       sqlcommon.DB
+	executor sqlcommon.Tx
 }
 
 func New(db sqlcommon.DB) folder.Repo {
-	return repo{db: db}
+	return repo{
+		db:       db,
+		executor: db,
+	}
 }
 
 var _ folder.Repo = &repo{}
@@ -34,8 +39,16 @@ var _ folder.Repo = &repo{}
 var likeEscape = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 func (r repo) inTx(ctx context.Context, readOnly bool, fn func(r repo) error) error {
-	return r.db.Tx(ctx, readOnly, func(tx sqlcommon.DB) error {
-		return fn(repo{db: tx})
+	if r.db == nil {
+		contextlib.Logger(ctx).Error("nested transactions not supported, reusing outer transaction")
+		return fn(r)
+	}
+
+	return r.db.Tx(ctx, readOnly, func(tx sqlcommon.Tx) error {
+		return fn(repo{
+			// db: nil  To prevent accidental query leak outside of used transaction.
+			executor: tx,
+		})
 	})
 }
 
@@ -129,7 +142,7 @@ func (r repo) getOne(ctx context.Context, where j.BoolExpression) (*folder.Folde
 		FROM(table.Folders).
 		WHERE(where).
 		LIMIT(1)
-	if err := r.db.Query(ctx, stmt, &dto); err != nil {
+	if err := r.executor.Query(ctx, stmt, &dto); err != nil {
 		if errors.Is(err, qrm.ErrNoRows) {
 			return nil, folder.ErrNotFound
 		}
@@ -174,7 +187,7 @@ func (r repo) getByRegexp(ctx context.Context, accountID ulid.ULID, f folder.Fil
 		FROM(table.Folders).
 		WHERE(accountWhere(accountID, &f, prefixCond)).
 		ORDER_BY(orderKey(order)...)
-	if err := r.db.Query(ctx, stmt, &dtos); err != nil {
+	if err := r.executor.Query(ctx, stmt, &dtos); err != nil {
 		return nil, err
 	}
 
@@ -220,7 +233,7 @@ func (r repo) GetByAccount(ctx context.Context, accountID ulid.ULID, f folder.Fi
 			FROM(table.Folders).
 			WHERE(accountWhere(accountID, &f)).
 			ORDER_BY(orderKey(order)...)
-		if err = r.db.Query(ctx, stmt, &dtos); err == nil {
+		if err = r.executor.Query(ctx, stmt, &dtos); err == nil {
 			models, err = foldersAsModels(dtos)
 		}
 	case 1:
@@ -263,7 +276,7 @@ func (r repo) CountByAccount(ctx context.Context, accountID ulid.ULID, f folder.
 		stmt := j.SELECT(j.COUNT(j.STAR).AS("count")).
 			FROM(table.Folders).
 			WHERE(accountWhere(accountID, &f))
-		if err := r.db.Query(ctx, stmt, &dest); err != nil {
+		if err := r.executor.Query(ctx, stmt, &dest); err != nil {
 			return 0, storeerrors.InternalError{Reason: err}
 		}
 		return int(dest.Count), nil
@@ -291,7 +304,7 @@ func (r repo) GetByPrefix(ctx context.Context, accountID ulid.ULID, f folder.Fil
 			stmt := j.SELECT(table.Folders.AllColumns).
 				FROM(table.Folders).
 				WHERE(accountWhere(accountID, &f, prefixCond))
-			if err := tx.db.Query(ctx, stmt, &dtos); err != nil {
+			if err := tx.executor.Query(ctx, stmt, &dtos); err != nil {
 				return err
 			}
 
@@ -329,7 +342,7 @@ func (r repo) Create(ctx context.Context, f *folder.Folder) error {
 	}
 
 	stmt := table.Folders.INSERT(table.Folders.AllColumns).MODEL(dto)
-	if _, err := r.db.Exec(ctx, stmt); err != nil {
+	if _, err := r.executor.Exec(ctx, stmt); err != nil {
 		if sqlite.IsUniqueConstraintError(err) {
 			return folder.ErrAlreadyExists
 		}
@@ -357,7 +370,7 @@ func (r repo) Update(ctx context.Context, f *folder.Folder) error {
 		MODEL(dto).
 		WHERE(table.Folders.ID.EQ(sqlite.ULID(f.ID)).
 			AND(table.Folders.UpdatedAt.EQ(sqlite.Timestamp(f.InitialUpdatedAt))))
-	res, err := r.db.Exec(ctx, stmt)
+	res, err := r.executor.Exec(ctx, stmt)
 	if err != nil {
 		return storeerrors.InternalError{Reason: err}
 	}
@@ -372,7 +385,7 @@ func (r repo) Delete(ctx context.Context, folderID ulid.ULID) error {
 	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlite.Delete").End()
 
 	stmt := table.Folders.DELETE().WHERE(table.Folders.ID.EQ(sqlite.ULID(folderID)))
-	if _, err := r.db.Exec(ctx, stmt); err != nil {
+	if _, err := r.executor.Exec(ctx, stmt); err != nil {
 		if sqlite.IsForeignConstraintError(err) {
 			return folder.ErrHasChildren
 		}
@@ -417,7 +430,7 @@ func (r repo) RenameMove(
 											AND(table.Folders.Path.EQ(j.String(oldPath))).
 											AND(table.Folders.Name.EQ(j.String(oldName)))).
 			RETURNING(table.Folders.ID, table.Folders.Path)
-		if err := tx.db.Query(ctx, stmt, &moved); err != nil {
+		if err := tx.executor.Query(ctx, stmt, &moved); err != nil {
 			if sqlite.IsUniqueConstraintError(err) {
 				return folder.ErrAlreadyExists
 			}
@@ -431,7 +444,7 @@ func (r repo) RenameMove(
 		}
 
 		// 2. Update path for children directories (parent_id stays the same).
-		var children []model.Folders
+		children := make([]model.Folders, 0, len(moved))
 		stmt = table.Folders.UPDATE().
 			SET(table.Folders.Path.SET(
 				j.String(newPath).CONCAT(j.SUBSTR(table.Folders.Path, j.Int(int64(len(oldPath)+1)))),
@@ -439,7 +452,7 @@ func (r repo) RenameMove(
 			WHERE(table.Folders.AccountID.EQ(sqlite.ULID(accountID)).
 				AND(sqlite.LikeEscape(table.Folders.Path, likeEscape.Replace(oldPath)+folder.PathSeparator+"%", `\`))).
 			RETURNING(table.Folders.ID, table.Folders.Path)
-		if err := tx.db.Query(ctx, stmt, &children); err != nil {
+		if err := tx.executor.Query(ctx, stmt, &children); err != nil {
 			if sqlite.IsUniqueConstraintError(err) { // Pretty much should be impossible, but check just in case.
 				return folder.ErrAlreadyExists
 			}
@@ -479,7 +492,7 @@ func (r repo) DeleteTree(ctx context.Context, accountID ulid.ULID, root string) 
 			AND(table.Folders.Path.EQ(j.String(root)).
 				OR(sqlite.LikeEscape(table.Folders.Path, likeEscape.Replace(root)+folder.PathSeparator+"%", `\`)))).
 		RETURNING(table.Folders.ID, table.Folders.Path)
-	if err := r.db.Query(ctx, stmt, &data); err != nil {
+	if err := r.executor.Query(ctx, stmt, &data); err != nil {
 		return nil, storeerrors.InternalError{Reason: err}
 	}
 
@@ -566,7 +579,7 @@ func newEntriesQuery(folderID ulid.ULID, ranges folder.Range, withSeq bool) entr
 
 // rangeConds returns nil if the range does not limit anything.
 func rangeConds(rang folder.Range, seq j.ColumnInteger) j.BoolExpression {
-	var col j.ColumnInteger = table.FolderEntries.UID
+	col := table.FolderEntries.UID
 	if rang.SeqNum {
 		col = seq
 	}
@@ -611,7 +624,7 @@ func (r repo) CreateEntry(ctx context.Context, entry ...folder.Entry) error {
 	}
 
 	stmt := table.FolderEntries.INSERT(table.FolderEntries.AllColumns).MODELS(dtos)
-	if _, err := r.db.Exec(ctx, stmt); err != nil {
+	if _, err := r.executor.Exec(ctx, stmt); err != nil {
 		if sqlite.IsForeignConstraintError(err) {
 			return folder.ErrDanglingEntry
 		}
@@ -634,7 +647,7 @@ func (r repo) ReplaceEntries(ctx context.Context, old []folder.Entry, new []fold
 				WHERE(table.FolderEntries.FolderID.EQ(sqlite.ULID(ent.FolderID)).
 					AND(table.FolderEntries.MessageID.EQ(sqlite.ULID(ent.MsgID))).
 					AND(table.FolderEntries.DeletedAt.IS_NULL()))
-			if _, err := tx.db.Exec(ctx, stmt); err != nil {
+			if _, err := tx.executor.Exec(ctx, stmt); err != nil {
 				return err
 			}
 		}
@@ -654,7 +667,7 @@ func (r repo) selectEntries(ctx context.Context, q entriesQuery) ([]folder.Entry
 		FROM(q.from).
 		WHERE(q.where).
 		ORDER_BY(table.FolderEntries.UID)
-	if err := r.db.Query(ctx, stmt, &rows); err != nil {
+	if err := r.executor.Query(ctx, stmt, &rows); err != nil {
 		return nil, fmt.Errorf("find: %w", err)
 	}
 
@@ -691,7 +704,7 @@ func (r repo) CountEntryByRange(ctx context.Context, folderID ulid.ULID, ranges 
 	stmt := j.SELECT(j.COUNT(j.STAR).AS("count")).
 		FROM(q.from).
 		WHERE(q.where)
-	if err := r.db.Query(ctx, stmt, &dest); err != nil {
+	if err := r.executor.Query(ctx, stmt, &dest); err != nil {
 		return 0, err
 	}
 
@@ -715,7 +728,7 @@ func (r repo) DeleteEntryByIDs(ctx context.Context, folderID ulid.ULID, ids []ul
 			AND(table.FolderEntries.MessageID.IN(sqlite.ULIDList(ids)...)).
 			AND(table.FolderEntries.DeletedAt.IS_NULL())).
 		RETURNING(table.FolderEntries.AllColumns)
-	if err := r.db.Query(ctx, stmt, &rows); err != nil {
+	if err := r.executor.Query(ctx, stmt, &rows); err != nil {
 		return nil, err
 	}
 
@@ -750,7 +763,7 @@ func (r repo) DeleteEntryByRange(ctx context.Context, folderID ulid.ULID, ranges
 				AND(table.FolderEntries.UID.IN(uids...)).
 				AND(table.FolderEntries.DeletedAt.IS_NULL())).
 			RETURNING(table.FolderEntries.UID)
-		if err := tx.db.Query(ctx, stmt, &rows); err != nil {
+		if err := tx.executor.Query(ctx, stmt, &rows); err != nil {
 			return err
 		}
 
@@ -785,7 +798,7 @@ func (r repo) UsedFlags(ctx context.Context, folderID ulid.ULID) ([]string, erro
 			table.FolderEntries.MessageID.EQ(table.MessageFlags.MessageID))).
 		WHERE(table.FolderEntries.FolderID.EQ(sqlite.ULID(folderID)).
 			AND(table.FolderEntries.DeletedAt.IS_NULL()))
-	if err := r.db.Query(ctx, stmt, &rows); err != nil {
+	if err := r.executor.Query(ctx, stmt, &rows); err != nil {
 		return nil, fmt.Errorf("failed to fetch used flags for folder %v: %w", folderID, err)
 	}
 
@@ -804,7 +817,7 @@ func (r repo) DeletedEntries(ctx context.Context, folderID ulid.ULID, deletedLt 
 			AND(table.FolderEntries.DeletedAt.LT(sqlite.Timestamp(deletedLt)))).
 		ORDER_BY(table.FolderEntries.DeletedAt).
 		LIMIT(int64(limit))
-	if err := r.db.Query(ctx, stmt, &rows); err != nil {
+	if err := r.executor.Query(ctx, stmt, &rows); err != nil {
 		return nil, err
 	}
 
@@ -825,7 +838,7 @@ func (r repo) TouchEntries(ctx context.Context, folderID ulid.ULID, ids []ulid.U
 		WHERE(table.FolderEntries.FolderID.EQ(sqlite.ULID(folderID)).
 			AND(table.FolderEntries.MessageID.IN(sqlite.ULIDList(ids)...))).
 		RETURNING(table.FolderEntries.MessageID, table.FolderEntries.Modseq)
-	if err := r.db.Query(ctx, stmt, &rows); err != nil {
+	if err := r.executor.Query(ctx, stmt, &rows); err != nil {
 		return nil, storeerrors.InternalError{Reason: err}
 	}
 

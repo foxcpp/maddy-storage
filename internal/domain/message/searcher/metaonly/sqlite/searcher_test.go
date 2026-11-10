@@ -410,24 +410,24 @@ func TestSearch_SizeConds(t *testing.T) {
 func TestSearch_Flags(t *testing.T) {
 	f := newFixture(t, searchersql.Cfg{})
 
-	f.add(f.inbox, 1, flags(`\Seen`, `\Flagged`))
-	f.add(f.inbox, 2, flags(`\Seen`))
+	f.add(f.inbox, 1, flags(string(imap.FlagSeen), string(imap.FlagFlagged)))
+	f.add(f.inbox, 2, flags(string(imap.FlagSeen)))
 	f.add(f.inbox, 3)
-	f.add(f.inbox, 4, flags(`\Flagged`, "custom"))
+	f.add(f.inbox, 4, flags(string(imap.FlagFlagged), "custom"))
 
 	cases := []struct {
 		name string
 		cond searcher.Cond
 		want []uint32
 	}{
-		{"Flag", searcher.Cond{Flag: []string{`\Seen`}}, []uint32{1, 2}},
+		{"Flag", searcher.Cond{Flag: []string{string(imap.FlagSeen)}}, []uint32{1, 2}},
 		{"FlagIsCaseInsensitive", searcher.Cond{Flag: []string{`\SEEN`}}, []uint32{1, 2}},
-		{"FlagsAreAnded", searcher.Cond{Flag: []string{`\Seen`, `\Flagged`}}, []uint32{1}},
+		{"FlagsAreAnded", searcher.Cond{Flag: []string{string(imap.FlagSeen), string(imap.FlagFlagged)}}, []uint32{1}},
 		{"UnknownFlag", searcher.Cond{Flag: []string{"nope"}}, nil},
-		{"NoFlag", searcher.Cond{NoFlag: []string{`\Seen`}}, []uint32{3, 4}},
+		{"NoFlag", searcher.Cond{NoFlag: []string{string(imap.FlagSeen)}}, []uint32{3, 4}},
 		{"NoFlagIsCaseInsensitive", searcher.Cond{NoFlag: []string{"CUSTOM"}}, []uint32{1, 2, 3}},
-		{"NoFlagsAreOred", searcher.Cond{NoFlag: []string{`\Seen`, "custom"}}, []uint32{3}},
-		{"FlagAndNoFlag", searcher.Cond{Flag: []string{`\Flagged`}, NoFlag: []string{`\Seen`}}, []uint32{4}},
+		{"NoFlagsAreOred", searcher.Cond{NoFlag: []string{string(imap.FlagSeen), "custom"}}, []uint32{3}},
+		{"FlagAndNoFlag", searcher.Cond{Flag: []string{string(imap.FlagFlagged)}, NoFlag: []string{string(imap.FlagSeen)}}, []uint32{4}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -444,8 +444,8 @@ func TestSearch_Flags(t *testing.T) {
 func TestSearch_RecentFlag(t *testing.T) {
 	f := newFixture(t, searchersql.Cfg{})
 
-	f.add(f.inbox, 1, flags(`\Seen`))
-	f.add(f.inbox, 2, flags(`\Seen`))
+	f.add(f.inbox, 1, flags(string(imap.FlagSeen)))
+	f.add(f.inbox, 2, flags(string(imap.FlagSeen)))
 	f.add(f.inbox, 3)
 
 	recents := func(uids ...imap.UID) context.Context {
@@ -460,69 +460,69 @@ func TestSearch_RecentFlag(t *testing.T) {
 		cond.FolderIDs = []ulid.ULID{f.inbox}
 		res, err := f.s.Search(ctx, f.acct.ID, &cond, searcher.Opts{ReturnAll: true})
 		require.NoError(t, err)
-		var uids []uint32
+		uids := make([]uint32, 0, len(res.All))
 		for _, m := range res.All {
 			uids = append(uids, m.UID)
 		}
 		return uids
 	}
 
-	require.Equal(t, []uint32{2, 3}, search(recents(2, 3), searcher.Cond{Flag: []string{`\Recent`}}))
-	require.Equal(t, []uint32{2}, search(recents(2, 3), searcher.Cond{Flag: []string{`\recent`, `\Seen`}}))
-	require.Empty(t, search(f.ctx, searcher.Cond{Flag: []string{`\Recent`}}), "no recents in context")
-	require.Empty(t, search(recents(), searcher.Cond{Flag: []string{`\Recent`}}), "empty recents set")
+	require.Equal(t, []uint32{2, 3}, search(recents(2, 3), searcher.Cond{Flag: []string{recent.FlagString}}))
+	require.Equal(t, []uint32{2}, search(recents(2, 3), searcher.Cond{Flag: []string{`\recent`, string(imap.FlagSeen)}}))
+	require.Empty(t, search(f.ctx, searcher.Cond{Flag: []string{recent.FlagString}}), "no recents in context")
+	require.Empty(t, search(recents(), searcher.Cond{Flag: []string{recent.FlagString}}), "empty recents set")
 
-	require.Equal(t, []uint32{1}, search(recents(2, 3), searcher.Cond{NoFlag: []string{`\Recent`}}))
-	require.Equal(t, []uint32{1, 2, 3}, search(f.ctx, searcher.Cond{NoFlag: []string{`\Recent`}}), "nothing is recent")
-	require.Equal(t, []uint32{3}, search(recents(2, 3), searcher.Cond{NoFlag: []string{`\Seen`}}))
+	require.Equal(t, []uint32{1}, search(recents(2, 3), searcher.Cond{NoFlag: []string{recent.FlagString}}))
+	require.Equal(t, []uint32{1, 2, 3}, search(f.ctx, searcher.Cond{NoFlag: []string{recent.FlagString}}), "nothing is recent")
+	require.Equal(t, []uint32{3}, search(recents(2, 3), searcher.Cond{NoFlag: []string{string(imap.FlagSeen)}}))
 }
 
 func TestSearch_Not(t *testing.T) {
 	f := newFixture(t, searchersql.Cfg{})
 
-	f.add(f.inbox, 1, size(10), flags(`\Seen`))
-	f.add(f.inbox, 2, size(20), flags(`\Seen`))
+	f.add(f.inbox, 1, size(10), flags(string(imap.FlagSeen)))
+	f.add(f.inbox, 2, size(20), flags(string(imap.FlagSeen)))
 	f.add(f.inbox, 3, size(30))
 
 	require.Equal(t, []uint32{3}, f.inboxUIDs(searcher.Cond{
-		Not: []*searcher.Cond{{Flag: []string{`\Seen`}}},
+		Not: []*searcher.Cond{{Flag: []string{string(imap.FlagSeen)}}},
 	}))
 	require.Equal(t, []uint32{1, 3}, f.inboxUIDs(searcher.Cond{
-		Not: []*searcher.Cond{{Flag: []string{`\Seen`}, SizeGt: 10}},
+		Not: []*searcher.Cond{{Flag: []string{string(imap.FlagSeen)}, SizeGt: 10}},
 	}), "NOT applies to the whole nested condition")
 	require.Equal(t, []uint32{3}, f.inboxUIDs(searcher.Cond{
-		Not: []*searcher.Cond{{Flag: []string{`\Seen`}}, {SizeLt: 5}},
+		Not: []*searcher.Cond{{Flag: []string{string(imap.FlagSeen)}}, {SizeLt: 5}},
 	}), "multiple NOTs are anded")
 	require.Equal(t, []uint32{2}, f.inboxUIDs(searcher.Cond{
 		Not: []*searcher.Cond{{NumericIDs: []folder.Range{{Values: []uint32{1, 3}}}}},
 	}))
 	require.Equal(t, []uint32{1, 2}, f.inboxUIDs(searcher.Cond{
-		Not: []*searcher.Cond{{Not: []*searcher.Cond{{Flag: []string{`\Seen`}}}}},
+		Not: []*searcher.Cond{{Not: []*searcher.Cond{{Flag: []string{string(imap.FlagSeen)}}}}},
 	}), "double negation")
 }
 
 func TestSearch_Or(t *testing.T) {
 	f := newFixture(t, searchersql.Cfg{})
 
-	f.add(f.inbox, 1, size(10), flags(`\Seen`))
-	f.add(f.inbox, 2, size(20), flags(`\Flagged`))
+	f.add(f.inbox, 1, size(10), flags(string(imap.FlagSeen)))
+	f.add(f.inbox, 2, size(20), flags(string(imap.FlagFlagged)))
 	f.add(f.inbox, 3, size(30))
-	f.add(f.inbox, 4, size(40), flags(`\Seen`, `\Flagged`))
+	f.add(f.inbox, 4, size(40), flags(string(imap.FlagSeen), string(imap.FlagFlagged)))
 
 	require.Equal(t, []uint32{1, 2, 4}, f.inboxUIDs(searcher.Cond{
-		Or: [][]*searcher.Cond{{{Flag: []string{`\Seen`}}, {Flag: []string{`\Flagged`}}}},
+		Or: [][]*searcher.Cond{{{Flag: []string{string(imap.FlagSeen)}}, {Flag: []string{string(imap.FlagFlagged)}}}},
 	}))
 	require.Equal(t, []uint32{2}, f.inboxUIDs(searcher.Cond{
 		SizeLt: 30,
-		Or:     [][]*searcher.Cond{{{Flag: []string{`\Seen`}}, {Flag: []string{`\Flagged`}}}},
-		Not:    []*searcher.Cond{{Flag: []string{`\Seen`}}},
+		Or:     [][]*searcher.Cond{{{Flag: []string{string(imap.FlagSeen)}}, {Flag: []string{string(imap.FlagFlagged)}}}},
+		Not:    []*searcher.Cond{{Flag: []string{string(imap.FlagSeen)}}},
 	}), "OR is anded with the rest of the conditions")
 	require.Equal(t, []uint32{1, 3}, f.inboxUIDs(searcher.Cond{
-		Or: [][]*searcher.Cond{{{SizeLt: 15}, {SizeGt: 25, Not: []*searcher.Cond{{Flag: []string{`\Flagged`}}}}}},
+		Or: [][]*searcher.Cond{{{SizeLt: 15}, {SizeGt: 25, Not: []*searcher.Cond{{Flag: []string{string(imap.FlagFlagged)}}}}}},
 	}))
 	require.Equal(t, []uint32{4}, f.inboxUIDs(searcher.Cond{
 		Or: [][]*searcher.Cond{
-			{{Flag: []string{`\Seen`}}, {Flag: []string{`\Flagged`}}},
+			{{Flag: []string{string(imap.FlagSeen)}}, {Flag: []string{string(imap.FlagFlagged)}}},
 			{{SizeGt: 35}, {SizeLt: 5}},
 		},
 	}), "multiple ORs are anded")
@@ -591,7 +591,7 @@ func TestSearch_Aggregated(t *testing.T) {
 
 	f.add(f.inbox, 2, size(10), msgModSeq(3), entModSeq(5))
 	f.add(f.inbox, 5, size(20), msgModSeq(11), entModSeq(4))
-	f.add(f.inbox, 9, size(30), msgModSeq(1), entModSeq(1), flags(`\Seen`))
+	f.add(f.inbox, 9, size(30), msgModSeq(1), entModSeq(1), flags(string(imap.FlagSeen)))
 	f.add(f.other, 1, size(40))
 
 	cond := &searcher.Cond{FolderIDs: []ulid.ULID{f.inbox}}
@@ -618,7 +618,7 @@ func TestSearch_Aggregated(t *testing.T) {
 		require.Equal(t, searcher.SearchResult{}, res)
 	})
 	t.Run("WithCondition", func(t *testing.T) {
-		res := f.search(&searcher.Cond{FolderIDs: []ulid.ULID{f.inbox}, Flag: []string{`\Seen`}},
+		res := f.search(&searcher.Cond{FolderIDs: []ulid.ULID{f.inbox}, Flag: []string{string(imap.FlagSeen)}},
 			searcher.Opts{ReturnCount: true, ReturnMinUID: true, ReturnMaxUID: true})
 		require.Equal(t, searcher.SearchResult{Count: 1, MinUID: 9, MaxUID: 9}, res)
 	})
@@ -691,9 +691,9 @@ func TestSearch_AggregatedGroupByFolderSeqNums(t *testing.T) {
 func TestSearch_Shortcuts(t *testing.T) {
 	f := newFixture(t, searchersql.Cfg{})
 
-	f.add(f.inbox, 1, flags(`\Seen`))
+	f.add(f.inbox, 1, flags(string(imap.FlagSeen)))
 	f.add(f.inbox, 2)
-	f.add(f.other, 3, flags(`\Seen`))
+	f.add(f.other, 3, flags(string(imap.FlagSeen)))
 
 	opts := searcher.Opts{ReturnAll: true}
 
@@ -701,12 +701,12 @@ func TestSearch_Shortcuts(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, res.All, 2)
 
-	res, err = f.s.SearchFlag(f.ctx, f.acct.ID, f.inbox, `\Seen`, opts)
+	res, err = f.s.SearchFlag(f.ctx, f.acct.ID, f.inbox, string(imap.FlagSeen), opts)
 	require.NoError(t, err)
 	require.Len(t, res.All, 1)
 	require.Equal(t, uint32(1), res.All[0].UID)
 
-	res, err = f.s.SearchWithoutFlag(f.ctx, f.acct.ID, f.inbox, `\Seen`, opts)
+	res, err = f.s.SearchWithoutFlag(f.ctx, f.acct.ID, f.inbox, string(imap.FlagSeen), opts)
 	require.NoError(t, err)
 	require.Len(t, res.All, 1)
 	require.Equal(t, uint32(2), res.All[0].UID)
@@ -729,10 +729,10 @@ func TestSearch_Tx(t *testing.T) {
 func TestSearch_EmptyNestedConds(t *testing.T) {
 	f := newFixture(t, searchersql.Cfg{})
 
-	f.add(f.inbox, 1, flags(`\Seen`))
+	f.add(f.inbox, 1, flags(string(imap.FlagSeen)))
 	f.add(f.inbox, 2)
 
-	seen := &searcher.Cond{Flag: []string{`\Seen`}}
+	seen := &searcher.Cond{Flag: []string{string(imap.FlagSeen)}}
 
 	t.Run("OrWithEmptyOperandIsTrue", func(t *testing.T) {
 		require.Equal(t, []uint32{1, 2}, f.inboxUIDs(searcher.Cond{
