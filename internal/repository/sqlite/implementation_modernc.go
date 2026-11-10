@@ -32,7 +32,9 @@ func addParams(dsn string, cfg *Cfg) string {
 	// that results in SQLITE_BUSY:
 	// https://berthub.eu/articles/posts/a-brief-post-on-sqlite3-database-locked-despite-timeout/
 
-	dsn += "_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(10000)&_txlock=immediate"
+	// _time_format makes modernc.org default format for time.Time match mattn/go-sqlite3. Needed for compatibility.
+
+	dsn += "_time_format=sqlite&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(10000)&_txlock=immediate"
 
 	return dsn
 }
