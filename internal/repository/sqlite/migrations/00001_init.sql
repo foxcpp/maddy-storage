@@ -129,6 +129,25 @@ CREATE UNIQUE INDEX messages_external_id_counters_pending_delete
     ON messages_external_id_counters(external_id)
     WHERE copies = 0;
 
+-- Append-only event log. No foreign keys on purpose: entries must outlive
+-- the account/folder/message they describe (e.g. 'account.deleted').
+CREATE TABLE changelog_entries (
+    at TIMESTAMP NOT NULL,
+    type TEXT NOT NULL,
+
+    account_id BLOB NOT NULL,
+    folder_id BLOB DEFAULT NULL,
+    message_id BLOB DEFAULT NULL,
+
+    meta BLOB NOT NULL DEFAULT x'7b7d', -- {}
+    data BLOB DEFAULT NULL
+);
+CREATE INDEX changelog_entries_account_at ON changelog_entries(account_id, at);
+CREATE INDEX changelog_entries_folder_at ON changelog_entries(folder_id, at)
+    WHERE folder_id IS NOT NULL;
+CREATE INDEX changelog_entries_message_at ON changelog_entries(message_id, at)
+    WHERE message_id IS NOT NULL;
+
 -- +goose StatementEnd
 
 -- +goose StatementBegin
@@ -156,6 +175,8 @@ END;
 
 -- +goose Down
 -- +goose StatementBegin
+
+DROP TABLE changelog_entries;
 
 DROP TABLE messages_external_id_counters;
 

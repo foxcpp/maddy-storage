@@ -11,6 +11,7 @@ package table
 // this method only once at the beginning of the program.
 func UseSchema(schema string) {
 	Accounts = Accounts.FromSchema(schema)
+	ChangelogEntries = ChangelogEntries.FromSchema(schema)
 	FolderEntries = FolderEntries.FromSchema(schema)
 	Folders = Folders.FromSchema(schema)
 	GooseDbVersion = GooseDbVersion.FromSchema(schema)
