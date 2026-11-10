@@ -14,7 +14,8 @@ import (
 )
 
 func Timestamp(t time.Time) j.TimestampExpression {
-	return j.TimestampExp(j.String(t.Format(time.RFC3339)))
+	// Matches time.Time serialization for models.
+	return j.RawTimestamp("#t", j.RawArgs{"#t": t})
 }
 
 func ULID(id ulid.ULID) j.BlobExpression {
@@ -93,7 +94,7 @@ func (db DB) Exec(ctx context.Context, query j.Statement) (sql.Result, error) {
 		l.Error("SQL query affected error", zap.Error(err))
 	}
 
-	l.Debug("SQL query (jet)",
+	l.Debug("SQL query",
 		zap.Duration("duration", time.Since(start)),
 		zap.Int64("rows_affected", rowsAffected),
 		zap.Stringer("query", stringerStmt{Statement: query}))
@@ -119,7 +120,7 @@ func (db DB) Query(ctx context.Context, query j.Statement, dest any) error {
 		return err
 	}
 
-	l.Debug("SQL query (jet)",
+	l.Debug("SQL query",
 		zap.Duration("duration", time.Since(start)),
 		zap.Stringer("query", stringerStmt{Statement: query}))
 

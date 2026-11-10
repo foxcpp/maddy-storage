@@ -71,7 +71,7 @@ func (r IMAPRepo) GetIMAPFolder(ctx context.Context, id ulid.ULID) (folder.IMAPF
 
 	stmt := j.SELECT(table.ImapFolders.AllColumns).
 		FROM(table.ImapFolders).
-		WHERE(table.ImapFolders.FolderID.EQ(blob(id))).
+		WHERE(table.ImapFolders.FolderID.EQ(sqlite.ULID(id))).
 		LIMIT(1)
 	if err := r.db.Query(ctx, stmt, &dto); err != nil {
 		if errors.Is(err, qrm.ErrNoRows) {
@@ -96,7 +96,7 @@ func (r IMAPRepo) GetIMAPFolders(ctx context.Context, ids []ulid.ULID) ([]folder
 
 	stmt := j.SELECT(table.ImapFolders.AllColumns).
 		FROM(table.ImapFolders).
-		WHERE(table.ImapFolders.FolderID.IN(blobs(ids)...))
+		WHERE(table.ImapFolders.FolderID.IN(sqlite.ULIDList(ids)...))
 	if err := r.db.Query(ctx, stmt, &dtos); err != nil {
 		return nil, storeerrors.InternalError{Reason: fmt.Errorf("failed to fetch imap folder info: %w", err)}
 	}
@@ -126,7 +126,7 @@ func (r IMAPRepo) NextUID(ctx context.Context, folderID ulid.ULID, n int) ([]uin
 	// UIDNext-1.
 	stmt := table.ImapFolders.UPDATE().
 		SET(table.ImapFolders.UIDNext.SET(table.ImapFolders.UIDNext.ADD(j.Int(int64(n))))).
-		WHERE(table.ImapFolders.FolderID.EQ(blob(folderID))).
+		WHERE(table.ImapFolders.FolderID.EQ(sqlite.ULID(folderID))).
 		RETURNING(table.ImapFolders.UIDNext)
 	if err := r.db.Query(ctx, stmt, &dto); err != nil {
 		if errors.Is(err, qrm.ErrNoRows) {
@@ -152,7 +152,7 @@ func (r IMAPRepo) LastModSeq(ctx context.Context, accountID ulid.ULID) (folder.M
 
 	stmt := j.SELECT(table.Modseq.Modseq).
 		FROM(table.Modseq).
-		WHERE(table.Modseq.AccountID.EQ(blob(accountID))).
+		WHERE(table.Modseq.AccountID.EQ(sqlite.ULID(accountID))).
 		LIMIT(1)
 	if err := r.db.Query(ctx, stmt, &dto); err != nil {
 		if errors.Is(err, qrm.ErrNoRows) {
@@ -170,7 +170,7 @@ func (r IMAPRepo) NextModSeq(ctx context.Context, accountID ulid.ULID) (folder.M
 	var dto model.Modseq
 
 	stmt := table.Modseq.INSERT(table.Modseq.AccountID, table.Modseq.Modseq).
-		VALUES(blob(accountID), j.Int(1)).
+		VALUES(sqlite.ULID(accountID), j.Int(1)).
 		ON_CONFLICT(table.Modseq.AccountID).
 		DO_UPDATE(j.SET(table.Modseq.Modseq.SET(table.Modseq.Modseq.ADD(j.Int(1))))).
 		RETURNING(table.Modseq.Modseq)

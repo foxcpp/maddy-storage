@@ -20,7 +20,7 @@ import (
 	changelogsqlite "github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
-	recentsqlcommon "github.com/foxcpp/maddy-storage/internal/domain/folder/recent/sqlcommon"
+	recentsqlcommon "github.com/foxcpp/maddy-storage/internal/domain/folder/recent/sqlite"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
 	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
