@@ -150,3 +150,5 @@ fabric.properties
 *.db-wal
 cmd/imapctl/imapctl
 cmd/imapd/imapd
+
+bin/
