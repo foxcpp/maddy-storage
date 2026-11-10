@@ -22,7 +22,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
-	searchersql "github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlcommon"
+	searchersql "github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher/scan"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"

@@ -15,7 +15,7 @@ import (
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
 	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
-	searchersqlcommon "github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlcommon"
+	searchersqlcommon "github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlite"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
