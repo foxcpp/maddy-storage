@@ -11,6 +11,10 @@ on:
   pull_request:
     branches: [ master, dev ]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   golangci:
     name: Lint
