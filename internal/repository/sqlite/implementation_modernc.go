@@ -1,4 +1,6 @@
-//go:build !cgo
+//go:build !cgo || modernc
+
+// 'modernc' is the same as used by maddy.
 
 package sqlite
 

@@ -28,9 +28,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
-      - name: "Unit & module tests"
-        run: |
-          go test ./...
+      - parallel:
+        - name: "Unit & module tests (mattn/go-sqlite3 driver)"
+          run: |
+            go test ./...
+        - name: "Unit & module tests (modernc.org/sqlite driver)"
+          run: |
+            go test -tags modernc ./...
   imaptest:
     name: "Run imaptest"
     runs-on: ubuntu-24.04
@@ -43,11 +47,20 @@ jobs:
         run: |
           wget -O /usr/local/bin/imaptest 'https://github.com/dovecot/imaptest/releases/download/latest/imaptest-x86_64-ubuntu-24.04'
           chmod +x /usr/local/bin/imaptest
-      - name: imaptest
-        run: |
-          go test -tags imaptest ./tests/imap2 \
-            -run '^TestImaptest.*$' \
-            -test.imaptest /usr/local/bin/imaptest \
-            -test.imaptest-rawlog \
-            -test.imaptest-dir \
-            $PWD/tests/imap2/imaptest/tests
+      - parallel:
+          - name: "imaptest (mattn/go-sqlite3 driver)"
+            run: |
+              go test -tags imaptest ./tests/imap2 \
+                -run '^TestImaptest.*$' \
+                -test.imaptest /usr/local/bin/imaptest \
+                -test.imaptest-rawlog \
+                -test.imaptest-dir \
+                $PWD/tests/imap2/imaptest/tests
+          - name: "imaptest (modernc.org/sqlite driver)"
+            run: |
+              go test -tags 'imaptest modernc' ./tests/imap2 \
+                -run '^TestImaptest.*$' \
+                -test.imaptest /usr/local/bin/imaptest \
+                -test.imaptest-rawlog \
+                -test.imaptest-dir \
+                $PWD/tests/imap2/imaptest/tests
