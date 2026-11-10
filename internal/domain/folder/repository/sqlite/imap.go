@@ -10,79 +10,104 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
+	"github.com/foxcpp/maddy-storage/internal/repository/sqlite/jetdb/model"
+	"github.com/foxcpp/maddy-storage/internal/repository/sqlite/jetdb/table"
+	"github.com/go-jet/jet/v2/qrm"
+	j "github.com/go-jet/jet/v2/sqlite"
 	"github.com/oklog/ulid/v2"
-	"gorm.io/gorm"
 )
 
-type imapFolderDTO struct {
-	FolderID    ulid.ULID `gorm:"column:folder_id"`
-	UIDNext     uint32    `gorm:"column:uid_next"`
-	UIDValidity uint32    `gorm:"column:uid_validity"`
-}
-
-func (imapFolderDTO) TableName() string { return "imap_folders" }
-
-func (val imapFolderDTO) AsModel() folder.IMAPFolder {
-	return folder.IMAPFolder{
-		ID:          val.FolderID,
-		UIDNext:     val.UIDNext,
-		UIDValidity: val.UIDValidity,
+func imapFolderAsModel(dto *model.ImapFolders) (folder.IMAPFolder, error) {
+	id, err := ulidFromBlob(dto.FolderID)
+	if err != nil {
+		return folder.IMAPFolder{}, err
 	}
+
+	return folder.IMAPFolder{
+		ID:          id,
+		UIDNext:     uint32(dto.UIDNext),
+		UIDValidity: uint32(dto.UIDValidity),
+	}, nil
 }
 
 type IMAPRepo struct {
 	db sqlite.DB
 }
 
-func New(db sqlite.DB) IMAPRepo {
+func NewIMAP(db sqlite.DB) IMAPRepo {
 	return IMAPRepo{db: db}
 }
 
 func (r IMAPRepo) CreateIMAPFolders(ctx context.Context, ids ...ulid.ULID) ([]folder.IMAPFolder, error) {
-	dto := make([]imapFolderDTO, len(ids))
+	if len(ids) == 0 {
+		return []folder.IMAPFolder{}, nil
+	}
+
+	dtos := make([]model.ImapFolders, len(ids))
+	models := make([]folder.IMAPFolder, len(ids))
 	for i, id := range ids {
-		dto[i] = imapFolderDTO{
-			FolderID:    id,
+		dtos[i] = model.ImapFolders{
+			FolderID:    id[:],
 			UIDNext:     1,
-			UIDValidity: rand.Uint32(),
+			UIDValidity: int64(rand.Uint32()),
+		}
+		models[i] = folder.IMAPFolder{
+			ID:          id,
+			UIDNext:     1,
+			UIDValidity: uint32(dtos[i].UIDValidity),
 		}
 	}
 
-	err := r.db.Gorm(ctx).Create(&dto).Error
-	if err != nil {
+	stmt := table.ImapFolders.INSERT(table.ImapFolders.AllColumns).MODELS(dtos)
+	if _, err := r.db.Exec(ctx, stmt); err != nil {
 		return nil, err
-	}
-
-	models := make([]folder.IMAPFolder, len(dto))
-	for i, d := range dto {
-		models[i] = d.AsModel()
 	}
 
 	return models, nil
 }
 
 func (r IMAPRepo) GetIMAPFolder(ctx context.Context, id ulid.ULID) (folder.IMAPFolder, error) {
-	var dto imapFolderDTO
-	err := r.db.Gorm(ctx).Where("folder_id = ?", id).First(&dto).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	var dto model.ImapFolders
+
+	stmt := j.SELECT(table.ImapFolders.AllColumns).
+		FROM(table.ImapFolders).
+		WHERE(table.ImapFolders.FolderID.EQ(blob(id))).
+		LIMIT(1)
+	if err := r.db.Query(ctx, stmt, &dto); err != nil {
+		if errors.Is(err, qrm.ErrNoRows) {
 			return folder.IMAPFolder{}, folder.ErrNotFound
 		}
 		return folder.IMAPFolder{}, storeerrors.InternalError{Reason: fmt.Errorf("failed to fetch imap folder info: %w", err)}
 	}
-	return dto.AsModel(), nil
+
+	m, err := imapFolderAsModel(&dto)
+	if err != nil {
+		return folder.IMAPFolder{}, storeerrors.InternalError{Reason: err}
+	}
+	return m, nil
 }
 
 func (r IMAPRepo) GetIMAPFolders(ctx context.Context, ids []ulid.ULID) ([]folder.IMAPFolder, error) {
-	var dto []imapFolderDTO
-	err := r.db.Gorm(ctx).Where("folder_id IN (?)", ids).Find(&dto).Error
-	if err != nil {
+	if len(ids) == 0 {
+		return []folder.IMAPFolder{}, nil
+	}
+
+	var dtos []model.ImapFolders
+
+	stmt := j.SELECT(table.ImapFolders.AllColumns).
+		FROM(table.ImapFolders).
+		WHERE(table.ImapFolders.FolderID.IN(blobs(ids)...))
+	if err := r.db.Query(ctx, stmt, &dtos); err != nil {
 		return nil, storeerrors.InternalError{Reason: fmt.Errorf("failed to fetch imap folder info: %w", err)}
 	}
 
-	models := make([]folder.IMAPFolder, len(dto))
-	for i, d := range dto {
-		models[i] = d.AsModel()
+	models := make([]folder.IMAPFolder, len(dtos))
+	for i := range dtos {
+		m, err := imapFolderAsModel(&dtos[i])
+		if err != nil {
+			return nil, storeerrors.InternalError{Reason: err}
+		}
+		models[i] = m
 	}
 
 	return models, nil
@@ -95,19 +120,22 @@ func (r IMAPRepo) NextUID(ctx context.Context, folderID ulid.ULID, n int) ([]uin
 		panic("n must be positive")
 	}
 
-	var lastUID uint32
+	var dto model.ImapFolders
 
-	err := r.db.Gorm(ctx).Raw(`
-		UPDATE imap_folders 
-		SET uid_next = uid_next + ?
-		WHERE folder_id = ?
-		RETURNING uid_next - 1`, n, folderID).Scan(&lastUID).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	// Returns the value after increment, so the allocated range ends at
+	// UIDNext-1.
+	stmt := table.ImapFolders.UPDATE().
+		SET(table.ImapFolders.UIDNext.SET(table.ImapFolders.UIDNext.ADD(j.Int(int64(n))))).
+		WHERE(table.ImapFolders.FolderID.EQ(blob(folderID))).
+		RETURNING(table.ImapFolders.UIDNext)
+	if err := r.db.Query(ctx, stmt, &dto); err != nil {
+		if errors.Is(err, qrm.ErrNoRows) {
 			return nil, folder.ErrNotFound
 		}
 		return nil, storeerrors.InternalError{Reason: err}
 	}
+
+	lastUID := uint32(dto.UIDNext) - 1
 
 	uids := make([]uint32, 0, n)
 	for i := lastUID - uint32(n) + 1; i <= lastUID; i++ {
@@ -120,31 +148,35 @@ func (r IMAPRepo) NextUID(ctx context.Context, folderID ulid.ULID, n int) ([]uin
 func (r IMAPRepo) LastModSeq(ctx context.Context, accountID ulid.ULID) (folder.ModSeq, error) {
 	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlite.LastModSeq").End()
 
-	var nextSeq uint64
+	var dto model.Modseq
 
-	err := r.db.Gorm(ctx).Raw(`SELECT modseq FROM modseq WHERE account_id = ?`, accountID).Scan(&nextSeq).Error
-	if err != nil {
+	stmt := j.SELECT(table.Modseq.Modseq).
+		FROM(table.Modseq).
+		WHERE(table.Modseq.AccountID.EQ(blob(accountID))).
+		LIMIT(1)
+	if err := r.db.Query(ctx, stmt, &dto); err != nil {
+		if errors.Is(err, qrm.ErrNoRows) {
+			return 0, nil
+		}
 		return 0, storeerrors.InternalError{Reason: err}
 	}
 
-	return folder.ModSeq(nextSeq), nil
+	return folder.ModSeq(dto.Modseq), nil
 }
 
 func (r IMAPRepo) NextModSeq(ctx context.Context, accountID ulid.ULID) (folder.ModSeq, error) {
 	defer trace.StartRegion(ctx, "maddy-storage/folder.repository.sqlite.NextModSeq").End()
 
-	var nextSeq uint64
+	var dto model.Modseq
 
-	err := r.db.Gorm(ctx).Raw(`
-		INSERT INTO modseq
-		VALUES (?, 1)
-		ON CONFLICT (account_id)
-		DO UPDATE SET modseq = modseq + 1
-		RETURNING modseq`,
-		accountID).Scan(&nextSeq).Error
-	if err != nil {
+	stmt := table.Modseq.INSERT(table.Modseq.AccountID, table.Modseq.Modseq).
+		VALUES(blob(accountID), j.Int(1)).
+		ON_CONFLICT(table.Modseq.AccountID).
+		DO_UPDATE(j.SET(table.Modseq.Modseq.SET(table.Modseq.Modseq.ADD(j.Int(1))))).
+		RETURNING(table.Modseq.Modseq)
+	if err := r.db.Query(ctx, stmt, &dto); err != nil {
 		return 0, storeerrors.InternalError{Reason: err}
 	}
 
-	return folder.ModSeq(nextSeq), nil
+	return folder.ModSeq(dto.Modseq), nil
 }

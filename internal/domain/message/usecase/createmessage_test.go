@@ -14,7 +14,6 @@ import (
 	accountusecase "github.com/foxcpp/maddy-storage/internal/domain/account/usecase"
 	storememory "github.com/foxcpp/maddy-storage/internal/domain/blob/store/memory"
 	changelogsqlite "github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
-	foldersql "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlcommon"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
@@ -37,8 +36,8 @@ func initMessageTestUsecase(t *testing.T) (Usecase, *storememory.Store, *account
 	blobStore := storememory.New()
 
 	acctRepo := accountsqlite.New(db)
-	folderRepo := foldersql.New(db)
-	imapRepo := foldersqlite.New(db)
+	folderRepo := foldersqlite.New(db)
+	imapRepo := foldersqlite.NewIMAP(db)
 	msgRepo := messagesqlite.New(db)
 	changelogRepo := changelogsqlite.New(db)
 

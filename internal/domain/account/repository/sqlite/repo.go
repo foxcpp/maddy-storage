@@ -2,6 +2,7 @@ package accountsql
 
 import (
 	"context"
+	"errors"
 	"runtime/trace"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite/jetdb/model"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite/jetdb/table"
+	"github.com/go-jet/jet/v2/qrm"
 	j "github.com/go-jet/jet/v2/sqlite"
 	"github.com/oklog/ulid/v2"
 )
@@ -68,6 +70,9 @@ func (r repo) GetByID(ctx context.Context, id ulid.ULID) (*account.Account, erro
 		WHERE(table.Accounts.ID.EQ(j.Blob(id[:]))).
 		LIMIT(1)
 	if err := r.db.Query(ctx, stmt, &dto); err != nil {
+		if errors.Is(err, qrm.ErrNoRows) {
+			return nil, account.ErrNotFound
+		}
 		return nil, storeerrors.InternalError{Reason: err}
 	}
 
@@ -89,6 +94,9 @@ func (r repo) GetByName(ctx context.Context, name string) (*account.Account, err
 		WHERE(table.Accounts.Name.EQ(j.String(name))).
 		LIMIT(1)
 	if err := r.db.Query(ctx, stmt, &dto); err != nil {
+		if errors.Is(err, qrm.ErrNoRows) {
+			return nil, account.ErrNotFound
+		}
 		return nil, storeerrors.InternalError{Reason: err}
 	}
 

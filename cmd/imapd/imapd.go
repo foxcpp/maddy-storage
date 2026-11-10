@@ -17,7 +17,6 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	recentsql "github.com/foxcpp/maddy-storage/internal/domain/folder/recent/sqlcommon"
-	foldersql "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlcommon"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
 	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
@@ -63,8 +62,8 @@ func main() {
 		}
 
 		accountsRepo = accountsql.New(db)
-		folderRepo = foldersql.New(db)
-		imapRepo = foldersqlite.New(db)
+		folderRepo = foldersqlite.New(db)
+		imapRepo = foldersqlite.NewIMAP(db)
 		messageRepo = messagesqlite.New(db)
 		changelogRepo = changelogsqlite.New(db)
 
@@ -75,7 +74,7 @@ func main() {
 		}), messageRepo, blobStore)
 
 		recents = recentsql.New(db)
-		watcher = foldersql.NewWatcher(1*time.Second, db)
+		watcher = foldersqlite.NewWatcher(1*time.Second, db)
 	}
 	if *blobFS != "" {
 		blobStore = storefs.New(*blobFS)

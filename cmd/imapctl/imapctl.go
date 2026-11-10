@@ -15,7 +15,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/changelog"
 	changelogsqlite "github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlcommon"
+	"github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
 	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"

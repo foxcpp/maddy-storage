@@ -12,7 +12,6 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	recentsqlcommon "github.com/foxcpp/maddy-storage/internal/domain/folder/recent/sqlcommon"
-	foldersql "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlcommon"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
 	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
@@ -81,13 +80,13 @@ func NewUsingSQLite(
 	}
 
 	accountsRepo := accountsqlite.New(db)
-	folderRepo := foldersql.New(db)
-	imapFolderRepo := foldersqlite.New(db)
+	folderRepo := foldersqlite.New(db)
+	imapFolderRepo := foldersqlite.NewIMAP(db)
 	messageRepo := messagesqlite.New(db)
 	changelogRepo := changelogsqlite.New(db)
 
 	c.Recents = recentsqlcommon.New(db)
-	c.Watcher = foldersql.NewWatcher(1*time.Second, db)
+	c.Watcher = foldersqlite.NewWatcher(1*time.Second, db)
 
 	c.Searcher = scan.New(
 		cfg.ScanSearch,

@@ -21,7 +21,6 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	recentsqlcommon "github.com/foxcpp/maddy-storage/internal/domain/folder/recent/sqlcommon"
-	foldersql "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlcommon"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
 	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
@@ -195,13 +194,13 @@ func TestServer(t *testing.T) *Server {
 		}
 
 		accountsRepo = accountsqlite.New(db)
-		folderRepo = foldersql.New(db)
-		imapFolderRepo = foldersqlite.New(db)
+		folderRepo = foldersqlite.New(db)
+		imapFolderRepo = foldersqlite.NewIMAP(db)
 		messageRepo = messagesqlite.New(db)
 		changelogRepo = changelogsqlite.New(db)
 
 		recents = recentsqlcommon.New(db)
-		watcher = foldersql.NewWatcher(1*time.Second, db)
+		watcher = foldersqlite.NewWatcher(1*time.Second, db)
 
 		searcher = scan.New(scan.Cfg{
 			BatchSize: 100,

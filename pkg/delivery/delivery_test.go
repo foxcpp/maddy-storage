@@ -12,7 +12,6 @@ import (
 	storememory "github.com/foxcpp/maddy-storage/internal/domain/blob/store/memory"
 	changelogsqlite "github.com/foxcpp/maddy-storage/internal/domain/changelog/repository/sqlite"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
-	foldersql "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlcommon"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
 	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
@@ -41,8 +40,8 @@ func initTestContainer(t *testing.T) (*Container, *storememory.Store) {
 	blobStore := storememory.New()
 
 	acctRepo := accountsqlite.New(db)
-	folderRepo := foldersql.New(db)
-	imapRepo := foldersqlite.New(db)
+	folderRepo := foldersqlite.New(db)
+	imapRepo := foldersqlite.NewIMAP(db)
 	msgRepo := messagesqlite.New(db)
 	changelogRepo := changelogsqlite.New(db)
 
