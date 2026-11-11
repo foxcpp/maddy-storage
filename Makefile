@@ -17,8 +17,8 @@ generate-jetdb: generate-jetdb-sqlite
 
 .PHONE: generate-jetdb-sqlite
 generate-jetdb-sqlite: imapctl
-	$(BINDIR)/imapctl --sqlite $(TMPDIR)/maddy-storage-jetdb-gen.db db migrations-up
-	$(GO) run github.com/go-jet/jet/v2/cmd/jet -source=sqlite -dsn="$(TMPDIR)/maddy-storage-jetdb-gen.db" -path=internal/repository/sqlite/jetdb
+	$(BINDIR)/imapctl --sqlite $(TMPDIR)/maddy-storage-jetdb-gen.db --blobfs $(TMPDIR) db migrations-up
+	$(GO) tool github.com/go-jet/jet/v2/cmd/jet -source=sqlite -dsn="$(TMPDIR)/maddy-storage-jetdb-gen.db" -path=internal/repository/sqlite/jetdb
 	@rm $(TMPDIR)/maddy-storage-jetdb-gen.db
 
 .PHONY: unittest
