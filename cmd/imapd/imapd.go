@@ -40,7 +40,7 @@ func main() {
 		container, err = maddy_storage.NewUsingSQLite(
 			maddy_storage.DefaultsSQLite,
 			*sqliteDB,
-			maddy_storage.StubAuth{},
+			maddy_storage.DummyAuth{},
 			blobStore,
 			tempBlobStore)
 		if err != nil {

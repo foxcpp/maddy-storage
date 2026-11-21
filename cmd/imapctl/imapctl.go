@@ -34,7 +34,7 @@ func storageInit(c *cli.Context) (storagecli.App, error) {
 	if c.IsSet("blobfs") {
 		blobStore = storefs.New(c.Path("blobfs"))
 	} else {
-		return storagecli.App{}, cli.Exit("Missing blob path", 2)
+		blobStore = blob.StubStore{}
 	}
 
 	var container *maddy_storage.Container

@@ -69,6 +69,12 @@ func (s StubAuth) Login(ctx context.Context, username, password string) (string,
 	return "", accountusecase.ErrInvalidCredentials
 }
 
+type DummyAuth struct{}
+
+func (d DummyAuth) Login(ctx context.Context, username, password string) (string, error) {
+	return username, nil
+}
+
 func NewUsingSQLite(
 	cfg SQLiteConfig,
 	path string,
