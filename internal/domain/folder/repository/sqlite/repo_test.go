@@ -169,7 +169,7 @@ func uids(es []folder.Entry) []uint32 {
 func requireErrIs[T error](t *testing.T, err error, want T) {
 	t.Helper()
 	require.Error(t, err)
-	require.ErrorIs(t, want, err)
+	require.ErrorIs(t, err, want)
 	require.Equal(t, want.Error(), err.Error())
 }
 
@@ -588,10 +588,6 @@ func TestFolder_DeleteTree(t *testing.T) {
 }
 
 func TestFolder_DeleteTree_WithChildren(t *testing.T) {
-	t.Skip("XXX: pre-existing bug, not related to the SQL builder: a single DELETE " +
-		"removes the parent before its children and trips ON DELETE RESTRICT " +
-		"(\"FOREIGN KEY constraint failed\"). Children must be deleted first.")
-
 	f := newFixture(t)
 
 	a := f.mkFolder(f.acct, nil, "a")

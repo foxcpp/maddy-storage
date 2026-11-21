@@ -463,6 +463,9 @@ func (r repo) RenameMove(
 		return nil
 	})
 	if err != nil {
+		if sqlite.IsForeignConstraintError(err) {
+			return nil, storeerrors.NotExistsError{Text: "parent folder does not exist"}
+		}
 		return nil, err
 	}
 

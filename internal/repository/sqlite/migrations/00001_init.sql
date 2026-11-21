@@ -14,7 +14,8 @@ CREATE TABLE folders (
      id BLOB NOT NULL PRIMARY KEY,
      parent_id BLOB DEFAULT NULL
          REFERENCES folders(id)
-             ON UPDATE CASCADE ON DELETE RESTRICT,
+             ON UPDATE CASCADE ON DELETE NO ACTION
+             DEFERRABLE INITIALLY DEFERRED,
      account_id BLOB NOT NULL
          REFERENCES accounts(id)
              ON UPDATE CASCADE ON DELETE CASCADE,
