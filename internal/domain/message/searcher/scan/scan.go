@@ -78,7 +78,7 @@ func (s *Searcher) matchBodyAndAggregate(
 			msgIDs[i] = msg.MessageID
 			entByID[msg.MessageID] = &msg
 		}
-		msgs, err := s.msgRepo.GetByIDs(ctx, 0, msgIDs...)
+		msgs, err := s.msgRepo.GetByIDs(ctx, 0, message.PartialMsgFlags|message.PartialMsgParts, msgIDs...)
 		if err != nil {
 			contextlib.Logger(ctx).Error("failed to fetch message batch, skipping", zap.Error(err))
 			continue

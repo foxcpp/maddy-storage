@@ -693,6 +693,7 @@ m2 body
 			}
 
 			// clean volatile data
+			gotMsg.Partial = 0
 			gotMsg.ID = ulid.ULID{}
 			gotMsg.CreatedAt = time.Time{}
 			gotMsg.UpdatedAt = time.Time{}

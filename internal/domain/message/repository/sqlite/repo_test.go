@@ -115,7 +115,7 @@ func (f *fixture) store(opts ...msgOpt) message.Msg {
 func (f *fixture) get(id ulid.ULID) *message.Msg {
 	f.t.Helper()
 
-	m, err := f.repo.GetByID(f.ctx, id)
+	m, err := f.repo.GetByID(f.ctx, message.PartialMsgFull, id)
 	require.NoError(f.t, err)
 
 	return m
@@ -213,14 +213,14 @@ func TestMessage_CreateDuplicateRollsBackBatch(t *testing.T) {
 	err := f.repo.Create(f.ctx, fresh, existing)
 	require.Error(t, err)
 
-	_, err = f.repo.GetByID(f.ctx, fresh.ID)
+	_, err = f.repo.GetByID(f.ctx, message.PartialMsgFull, fresh.ID)
 	require.Error(t, err, "batch must be atomic")
 }
 
 func TestMessage_GetByIDNotFound(t *testing.T) {
 	f := newFixture(t)
 
-	_, err := f.repo.GetByID(f.ctx, ulid.Make())
+	_, err := f.repo.GetByID(f.ctx, message.PartialMsgFull, ulid.Make())
 	require.ErrorIs(t, err, message.ErrNotFound)
 }
 
@@ -235,29 +235,29 @@ func TestMessage_GetByIDs(t *testing.T) {
 	c := f.store(withModSeq(9))
 
 	t.Run("PreservesInputOrder", func(t *testing.T) {
-		got, err := f.repo.GetByIDs(f.ctx, 0, c.ID, a.ID, b.ID)
+		got, err := f.repo.GetByIDs(f.ctx, 0, message.PartialMsgFull, c.ID, a.ID, b.ID)
 		require.NoError(t, err)
 		require.Equal(t, []ulid.ULID{c.ID, a.ID, b.ID}, ids(got))
 
 		requireSameMsg(t, b, &got[2])
 	})
 	t.Run("SkipsMissing", func(t *testing.T) {
-		got, err := f.repo.GetByIDs(f.ctx, 0, a.ID, ulid.Make(), b.ID)
+		got, err := f.repo.GetByIDs(f.ctx, 0, message.PartialMsgFull, a.ID, ulid.Make(), b.ID)
 		require.NoError(t, err)
 		require.Equal(t, []ulid.ULID{a.ID, b.ID}, ids(got))
 	})
 	t.Run("DuplicateIDsReturnedOnce", func(t *testing.T) {
-		got, err := f.repo.GetByIDs(f.ctx, 0, a.ID, a.ID)
+		got, err := f.repo.GetByIDs(f.ctx, 0, message.PartialMsgFull, a.ID, a.ID)
 		require.NoError(t, err)
 		require.Equal(t, []ulid.ULID{a.ID}, ids(got))
 	})
 	t.Run("ModSeqGt", func(t *testing.T) {
-		got, err := f.repo.GetByIDs(f.ctx, 1, a.ID, b.ID, c.ID)
+		got, err := f.repo.GetByIDs(f.ctx, 1, message.PartialMsgFull, a.ID, b.ID, c.ID)
 		require.NoError(t, err)
 		require.Equal(t, []ulid.ULID{b.ID, c.ID}, ids(got))
 	})
 	t.Run("NoIDs", func(t *testing.T) {
-		got, err := f.repo.GetByIDs(f.ctx, 0)
+		got, err := f.repo.GetByIDs(f.ctx, 0, message.PartialMsgFull)
 		require.NoError(t, err)
 		require.Empty(t, got)
 	})
@@ -272,7 +272,7 @@ func TestMessage_DeleteByID(t *testing.T) {
 
 	require.NoError(t, f.repo.DeleteByID(f.ctx, a.ID, b.ID))
 
-	got, err := f.repo.GetByIDs(f.ctx, 0, a.ID, b.ID, keep.ID)
+	got, err := f.repo.GetByIDs(f.ctx, 0, message.PartialMsgFull, a.ID, b.ID, keep.ID)
 	require.NoError(t, err)
 	require.Equal(t, []ulid.ULID{keep.ID}, ids(got))
 

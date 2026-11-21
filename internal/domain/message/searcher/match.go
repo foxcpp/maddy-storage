@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"runtime/trace"
+	"slices"
 	"strings"
 	"time"
 
@@ -75,13 +76,7 @@ func Match(ctx context.Context, ent *FoundMsg, m *message.Msg, openPart FuncOpen
 	defer trace.StartRegion(ctx, "maddy-storage/message.searcher.Match").End()
 
 	if cond.FolderIDs != nil {
-		inFolder := false
-		for _, f := range cond.FolderIDs {
-			if f == ent.FolderID {
-				inFolder = true
-				break
-			}
-		}
+		inFolder := slices.Contains(cond.FolderIDs, ent.FolderID)
 		if !inFolder {
 			return false, nil
 		}

@@ -259,6 +259,29 @@ func (opts loggedFetchOptions) MarshalLogArray(encoder zapcore.ArrayEncoder) err
 	return nil
 }
 
+func partialMsgMaskFromFetch(options *imap.FetchOptions) message.PartialMsgMask {
+	if options == nil {
+		return message.PartialMsgMinimal
+	}
+
+	mask := message.PartialMsgMinimal
+
+	if options.BodyStructure != nil {
+		mask = mask.Add(message.PartialMsgParts)
+	}
+	if options.Envelope {
+		mask = mask.Add(message.PartialMsgContent)
+	}
+	if options.Flags {
+		mask = mask.Add(message.PartialMsgFlags)
+	}
+	if len(options.BodySection) != 0 || len(options.BinarySection) != 0 || len(options.BinarySectionSize) != 0 {
+		mask = mask.Add(message.PartialMsgParts)
+	}
+
+	return mask
+}
+
 func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *imap.FetchOptions) error {
 	ctx, task := trace.NewTask(s.ctx, "maddy-storage/imap2.Fetch")
 	defer task.End()
@@ -289,7 +312,8 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 		changedSince = folder.ModSeq(options.ChangedSince)
 	}
 
-	msgs, err := s.b.messages.Fetch(ctx, s.accountID, s.mbox.FolderID, ids, changedSince, true)
+	msgs, err := s.b.messages.Fetch(ctx, s.accountID, s.mbox.FolderID, ids,
+		changedSince, true, partialMsgMaskFromFetch(options))
 	if err != nil {
 		return s.asIMAPError(fmt.Errorf("fetch %v: %w", ids, err))
 	}
@@ -378,7 +402,7 @@ func (s *session) writeMessage(ctx context.Context, w *imapserver.FetchWriter, m
 		))
 	}
 	if options.Envelope {
-		msgWriter.WriteEnvelope(contentEnvelopeToIMAP(msg.Msg.Parts[0].Content.Envelope))
+		msgWriter.WriteEnvelope(contentEnvelopeToIMAP(msg.Msg.Content.Envelope))
 	}
 	if options.Flags {
 		if s.mbox.Recents.IsRecent(imap.UID(msg.Entry.IMAPUID)) {

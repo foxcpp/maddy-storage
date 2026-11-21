@@ -7,6 +7,8 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/foxcpp/maddy-storage/internal/repository/sqlite/jetdb/model"
+	"github.com/foxcpp/maddy-storage/internal/repository/sqlite/jetdb/table"
+	j "github.com/go-jet/jet/v2/sqlite"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -75,13 +77,41 @@ func nilIfNil(b []byte) *[]byte {
 	return &b
 }
 
-func asModel(dto *model.Messages, flags []model.MessageFlags, parts []model.MessageParts) (*message.Msg, error) {
+func partialMsgColumnList(partial message.PartialMsgMask) j.ColumnList {
+	if partial == message.PartialMsgFull {
+		return table.Messages.AllColumns
+	}
+
+	columns := j.ColumnList{
+		table.Messages.ID,
+		table.Messages.Date,
+		table.Messages.ReceivedAt,
+		table.Messages.TotalSize,
+		table.Messages.Modseq,
+		table.Messages.CreatedAtModseq,
+		table.Messages.CreatedAt,
+		table.Messages.UpdatedAt,
+	}
+
+	if partial.Has(message.PartialMsgMetadata) {
+		columns = append(columns, table.Messages.Meta)
+	}
+
+	if partial.Has(message.PartialMsgContent) {
+		columns = append(columns, table.Messages.Content)
+	}
+
+	return columns
+}
+
+func asModel(partial message.PartialMsgMask, dto *model.Messages, flags []model.MessageFlags, parts []model.MessageParts) (*message.Msg, error) {
 	id, err := ulidFromBlob(dto.ID)
 	if err != nil {
 		return nil, err
 	}
 
 	msg := &message.Msg{
+		Partial:         partial,
 		ID:              id,
 		CreatedAtModSeq: folder.ModSeq(dto.CreatedAtModseq),
 		ModSeq:          folder.ModSeq(dto.Modseq),
@@ -91,49 +121,58 @@ func asModel(dto *model.Messages, flags []model.MessageFlags, parts []model.Mess
 		UpdatedAt:       dto.UpdatedAt,
 	}
 
-	if err := json.Unmarshal(dto.Meta, &msg.Meta); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
-	}
-	if msg.Meta == nil {
-		return nil, fmt.Errorf("nil metadata")
-	}
-	if err := json.Unmarshal(dto.Content, &msg.Content); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal msg content: %w", err)
-	}
-	if msg.Content == nil {
-		return nil, fmt.Errorf("nil message content data")
+	if partial.Has(message.PartialMsgMetadata) {
+		if err := json.Unmarshal(dto.Meta, &msg.Meta); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		}
+		if msg.Meta == nil {
+			return nil, fmt.Errorf("nil metadata")
+		}
 	}
 
-	msg.Flags = make([]string, len(flags))
-	for i, f := range flags {
-		msg.Flags[i] = f.Flag
+	if partial.Has(message.PartialMsgContent) {
+		if err := json.Unmarshal(dto.Content, &msg.Content); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal msg content: %w", err)
+		}
+		if msg.Content == nil {
+			return nil, fmt.Errorf("nil message content data")
+		}
 	}
 
-	msg.Parts = make([]message.Part, len(parts))
-	for i, p := range parts {
-		partID, err := ulidFromBlob(p.ID)
-		if err != nil {
-			return nil, err
+	if partial.Has(message.PartialMsgFlags) {
+		msg.Flags = make([]string, len(flags))
+		for i, f := range flags {
+			msg.Flags[i] = f.Flag
 		}
-		path, err := message.PathFromString(p.Path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal part %v path: %w", partID, err)
-		}
+	}
 
-		msg.Parts[i] = message.Part{
-			ID:    partID,
-			Order: int(p.Order),
-			Path:  path,
-		}
-		if p.Inline != nil {
-			msg.Parts[i].Inline = *p.Inline
-		}
-		if p.ExternalBlobID != nil {
-			msg.Parts[i].ExternalBlobID = *p.ExternalBlobID
-		}
+	if partial.Has(message.PartialMsgParts) {
+		msg.Parts = make([]message.Part, len(parts))
+		for i, p := range parts {
+			partID, err := ulidFromBlob(p.ID)
+			if err != nil {
+				return nil, err
+			}
+			path, err := message.PathFromString(p.Path)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal part %v path: %w", partID, err)
+			}
 
-		if err := json.Unmarshal(p.Content, &msg.Parts[i].Content); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal part %v content data: %w", partID, err)
+			msg.Parts[i] = message.Part{
+				ID:    partID,
+				Order: int(p.Order),
+				Path:  path,
+			}
+			if p.Inline != nil {
+				msg.Parts[i].Inline = *p.Inline
+			}
+			if p.ExternalBlobID != nil {
+				msg.Parts[i].ExternalBlobID = *p.ExternalBlobID
+			}
+
+			if err := json.Unmarshal(p.Content, &msg.Parts[i].Content); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal part %v content data: %w", partID, err)
+			}
 		}
 	}
 

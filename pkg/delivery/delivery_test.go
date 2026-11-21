@@ -14,6 +14,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	foldersqlite "github.com/foxcpp/maddy-storage/internal/domain/folder/repository/sqlite"
 	folderusecase "github.com/foxcpp/maddy-storage/internal/domain/folder/usecase"
+	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	messagesqlite "github.com/foxcpp/maddy-storage/internal/domain/message/repository/sqlite"
 	searchersqlcommon "github.com/foxcpp/maddy-storage/internal/domain/message/searcher/metaonly/sqlite"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
@@ -121,7 +122,7 @@ func TestDeliverySimple(t *testing.T) {
 
 		msg, err := c.msg.Fetch(ctx, acct.ID, foldData.Folder.ID, folder.Range{
 			Values: []uint32{foldData.MaxUID},
-		}, folder.ModSeq(0), false)
+		}, folder.ModSeq(0), false, message.PartialMsgFull)
 		assert.NoError(t, err)
 		assert.NotNil(t, msg)
 		require.Len(t, msg, 1)
@@ -174,7 +175,7 @@ func TestDeliveryRole(t *testing.T) {
 	checkMsg := func(acct *account.Account, foldData *messageusecase.FolderInfo) {
 		msg, err := c.msg.Fetch(ctx, acct.ID, foldData.Folder.ID, folder.Range{
 			Values: []uint32{foldData.MaxUID},
-		}, folder.ModSeq(0), false)
+		}, folder.ModSeq(0), false, message.PartialMsgFull)
 		require.NoError(t, err)
 		assert.NotNil(t, msg)
 		assert.Len(t, msg, 1)
@@ -244,7 +245,7 @@ func TestDeliveryRcptOverride(t *testing.T) {
 	checkMsg := func(acct *account.Account, foldData *messageusecase.FolderInfo) {
 		msg, err := c.msg.Fetch(ctx, acct.ID, foldData.Folder.ID, folder.Range{
 			Values: []uint32{foldData.MaxUID},
-		}, folder.ModSeq(0), false)
+		}, folder.ModSeq(0), false, message.PartialMsgFull)
 		require.NoError(t, err)
 		assert.NotNil(t, msg)
 		assert.Len(t, msg, 1)
@@ -318,7 +319,7 @@ func TestDeliveryAdditionalPremable(t *testing.T) {
 
 		msg, err := c.msg.Fetch(ctx, acct.ID, foldData.Folder.ID, folder.Range{
 			Values: []uint32{foldData.MaxUID},
-		}, folder.ModSeq(0), false)
+		}, folder.ModSeq(0), false, message.PartialMsgFull)
 		require.NoError(t, err)
 		assert.NotNil(t, msg)
 		assert.Len(t, msg, 1)

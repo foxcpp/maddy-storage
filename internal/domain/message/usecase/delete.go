@@ -148,7 +148,7 @@ func (uc *Usecase) CleanDanglingMessages(ctx context.Context) error {
 	if len(msgIDs) == 0 {
 		return nil
 	}
-	msgs, err := uc.msgRepo.GetByIDs(ctx, 0, msgIDs...)
+	msgs, err := uc.msgRepo.GetByIDs(ctx, 0, message.PartialMsgParts, msgIDs...)
 	if err != nil {
 		return fmt.Errorf("failed to fetch messages for deletion: %w", err)
 	}
@@ -203,7 +203,7 @@ func (uc *Usecase) CleanDeleted(ctx context.Context, accountID, folderID ulid.UL
 	for _, ent := range ents {
 		msgIDs = append(msgIDs, ent.MsgID)
 	}
-	msgs, err := uc.msgRepo.GetByIDs(ctx, 0, msgIDs...)
+	msgs, err := uc.msgRepo.GetByIDs(ctx, 0, message.PartialMsgParts, msgIDs...)
 	if err != nil {
 		return fmt.Errorf("failed to fetch messages for deletion: %w", err)
 	}

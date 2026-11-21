@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
+	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
@@ -68,7 +69,7 @@ func (uc *Usecase) Copy(ctx context.Context, accountID ulid.ULID, ids folder.Ran
 		msgIDs = append(msgIDs, sourceEntry.MsgID)
 	}
 
-	msgs, err := uc.msgRepo.GetByIDs(ctx, 0, msgIDs...)
+	msgs, err := uc.msgRepo.GetByIDs(ctx, 0, message.PartialMsgFull, msgIDs...)
 	if err != nil {
 		return nil, err
 	}

@@ -10,7 +10,30 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
+type PartialMsgMask int32
+
+const (
+	PartialMsgMetadata PartialMsgMask = 1 << iota
+	PartialMsgFlags
+	PartialMsgContent
+	PartialMsgParts
+)
+
+func (m PartialMsgMask) Has(mask PartialMsgMask) bool {
+	return m&mask == mask
+}
+
+func (m PartialMsgMask) Add(rhs PartialMsgMask) PartialMsgMask {
+	return m | rhs
+}
+
+const PartialMsgMinimal = PartialMsgMask(0)
+
+const PartialMsgFull = PartialMsgMetadata | PartialMsgFlags | PartialMsgContent | PartialMsgParts
+
 type Msg struct {
+	Partial PartialMsgMask
+
 	ID              ulid.ULID
 	ReceivedAt      time.Time
 	CreatedAtModSeq folder.ModSeq
@@ -27,6 +50,10 @@ type Msg struct {
 	Parts     []Part
 }
 
+func (m *Msg) Has(mask PartialMsgMask) bool {
+	return m.Partial.Has(mask)
+}
+
 func (m *Msg) Copy(modSeq folder.ModSeq) *Msg {
 	meta := m.Meta.Copy()
 	meta.Set("copy_of", m.ID.String())
@@ -37,6 +64,7 @@ func (m *Msg) Copy(modSeq folder.ModSeq) *Msg {
 	}
 
 	return &Msg{
+		Partial:         m.Partial,
 		ID:              ulid.Make(),
 		ReceivedAt:      m.ReceivedAt,
 		CreatedAtModSeq: modSeq,
@@ -60,6 +88,10 @@ func (m *Msg) calculateTotalSize() uint32 {
 }
 
 func (m *Msg) FindPart(path Path) *Part {
+	if !m.Has(PartialMsgParts) {
+		panic("cannot use FindPart with no parts data available")
+	}
+
 	for _, p := range m.Parts {
 		if p.Path.Equals(path) {
 			return &p
@@ -69,6 +101,10 @@ func (m *Msg) FindPart(path Path) *Part {
 }
 
 func (m *Msg) TextParts() iter.Seq[*Part] {
+	if !m.Has(PartialMsgParts) {
+		panic("cannot use TextPart with no parts data available")
+	}
+
 	return func(yield func(*Part) bool) {
 		for _, p := range m.Parts {
 			if p.IsText() && !yield(&p) {
@@ -201,6 +237,7 @@ func New(data *NewMsg, additionalMeta metadata.Md) (*Msg, error) {
 
 	now := time.Now()
 	msg := &Msg{
+		Partial:         PartialMsgFull,
 		ID:              data.ID,
 		CreatedAtModSeq: data.ModSeq,
 		ModSeq:          data.ModSeq,

@@ -404,7 +404,7 @@ func (m Container) DumpMessage(ctx context.Context, accountName, folderPath stri
 		return nil, fmt.Errorf("parse message id %q: %w", id, err)
 	}
 
-	msgs, err := m.message.FetchByIDs(ctx, []ulid.ULID{msgID})
+	msgs, err := m.message.FetchByIDs(ctx, []ulid.ULID{msgID}, message.PartialMsgFull)
 	if err != nil {
 		return nil, err
 	}
@@ -557,7 +557,7 @@ func (m Container) fetchMessageDTOs(ctx context.Context, ids []ulid.ULID) ([]Mes
 		return []MessageDTO{}, nil
 	}
 
-	msgs, err := m.message.FetchByIDs(ctx, ids)
+	msgs, err := m.message.FetchByIDs(ctx, ids, message.PartialMsgFull)
 	if err != nil {
 		return nil, err
 	}

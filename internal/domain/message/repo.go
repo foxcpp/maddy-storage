@@ -18,8 +18,8 @@ type MsgFlags struct {
 }
 
 type Repo interface {
-	GetByID(ctx context.Context, id ulid.ULID) (*Msg, error)
-	GetByIDs(ctx context.Context, modSeqGt folder.ModSeq, ids ...ulid.ULID) ([]Msg, error)
+	GetByID(ctx context.Context, partial PartialMsgMask, id ulid.ULID) (*Msg, error)
+	GetByIDs(ctx context.Context, modSeqGt folder.ModSeq, partial PartialMsgMask, ids ...ulid.ULID) ([]Msg, error)
 	Create(ctx context.Context, m ...Msg) error
 	DeleteByID(ctx context.Context, id ...ulid.ULID) error
 

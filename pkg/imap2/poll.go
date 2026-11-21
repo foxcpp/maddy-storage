@@ -12,6 +12,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
+	"github.com/foxcpp/maddy-storage/internal/domain/message"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
 	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
@@ -149,14 +150,11 @@ func (s *session) applyOtherUpdates(ctx context.Context, w *imapserver.UpdateWri
 		fetchFlagsID = append(fetchFlagsID, ent.Updated.IMAPUID)
 	}
 	if len(fetchFlagsID) != 0 {
-		fetched, err := s.b.messages.Fetch(
-			ctx, s.accountID, s.mbox.FolderID,
-			folder.Range{
-				Values:    fetchFlagsID,
-				At:        s.mbox.At,
-				DeletesAt: s.mbox.DeletesAt,
-			}, 0,
-			true)
+		fetched, err := s.b.messages.Fetch(ctx, s.accountID, s.mbox.FolderID, folder.Range{
+			Values:    fetchFlagsID,
+			At:        s.mbox.At,
+			DeletesAt: s.mbox.DeletesAt,
+		}, 0, true, message.PartialMsgFlags)
 		if err != nil {
 			return fmt.Errorf("failed to fetch changes: %w", err)
 		}

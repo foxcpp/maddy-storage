@@ -75,10 +75,10 @@ func (r repo) flagsOf(ctx context.Context, ids []ulid.ULID) (map[ulid.ULID][]str
 	return res, nil
 }
 
-func (r repo) GetByID(ctx context.Context, id ulid.ULID) (*message.Msg, error) {
+func (r repo) GetByID(ctx context.Context, partial message.PartialMsgMask, id ulid.ULID) (*message.Msg, error) {
 	defer trace.StartRegion(ctx, "maddy-storage/message.repository.sqlite.GetByID").End()
 
-	msgs, err := r.GetByIDs(ctx, 0, id)
+	msgs, err := r.GetByIDs(ctx, 0, message.PartialMsgFull, id)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (r repo) GetByID(ctx context.Context, id ulid.ULID) (*message.Msg, error) {
 	return &msgs[0], nil
 }
 
-func (r repo) GetByIDs(ctx context.Context, modSeqGt folder.ModSeq, ids ...ulid.ULID) ([]message.Msg, error) {
+func (r repo) GetByIDs(ctx context.Context, modSeqGt folder.ModSeq, partial message.PartialMsgMask, ids ...ulid.ULID) ([]message.Msg, error) {
 	defer trace.StartRegion(ctx, "maddy-storage/message.repository.sqlite.GetByIDs").End()
 
 	if len(ids) == 0 {
@@ -99,30 +99,37 @@ func (r repo) GetByIDs(ctx context.Context, modSeqGt folder.ModSeq, ids ...ulid.
 	var (
 		msgs  []model.Messages
 		parts []model.MessageParts
+		flags []model.MessageFlags
 	)
 
 	// It is important to fetch flag -> part -> msg.
 	// to ensure we won't see messages with missing parts and flags
 	// because they are partially being deleted.
 
-	flags, err := r.selectFlags(ctx, ids)
-	if err != nil {
-		return nil, storeerrors.InternalError{Reason: fmt.Errorf("find flags: %w", err)}
+	var err error
+
+	if partial.Has(message.PartialMsgFlags) {
+		flags, err = r.selectFlags(ctx, ids)
+		if err != nil {
+			return nil, storeerrors.InternalError{Reason: fmt.Errorf("find flags: %w", err)}
+		}
 	}
 
-	partsStmt := j.SELECT(table.MessageParts.AllColumns).
-		FROM(table.MessageParts).
-		WHERE(table.MessageParts.MessageID.IN(sqlite.ULIDList(ids)...)).
-		ORDER_BY(table.MessageParts.Order.ASC())
-	if err := r.executor.Query(ctx, partsStmt, &parts); err != nil {
-		return nil, storeerrors.InternalError{Reason: fmt.Errorf("find parts: %w", err)}
+	if partial.Has(message.PartialMsgParts) {
+		partsStmt := j.SELECT(table.MessageParts.AllColumns).
+			FROM(table.MessageParts).
+			WHERE(table.MessageParts.MessageID.IN(sqlite.ULIDList(ids)...)).
+			ORDER_BY(table.MessageParts.Order.ASC())
+		if err := r.executor.Query(ctx, partsStmt, &parts); err != nil {
+			return nil, storeerrors.InternalError{Reason: fmt.Errorf("find parts: %w", err)}
+		}
 	}
 
 	where := table.Messages.ID.IN(sqlite.ULIDList(ids)...)
 	if modSeqGt != 0 {
 		where = where.AND(table.Messages.Modseq.GT(j.Int(int64(modSeqGt))))
 	}
-	msgsStmt := j.SELECT(table.Messages.AllColumns).
+	msgsStmt := j.SELECT(partialMsgColumnList(partial)).
 		FROM(table.Messages).
 		WHERE(where)
 	if err := r.executor.Query(ctx, msgsStmt, &msgs); err != nil {
@@ -173,7 +180,7 @@ func (r repo) GetByIDs(ctx context.Context, modSeqGt folder.ModSeq, ids ...ulid.
 		// Guard against duplicate ids in the input.
 		delete(byID, id)
 
-		m, err := asModel(jm.msg, jm.flags, jm.parts)
+		m, err := asModel(partial, jm.msg, jm.flags, jm.parts)
 		if err != nil {
 			return nil, storeerrors.InternalError{Reason: fmt.Errorf("restore msg %v: %w", id, err)}
 		}

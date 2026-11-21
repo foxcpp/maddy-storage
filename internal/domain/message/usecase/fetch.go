@@ -40,12 +40,13 @@ func (p PartSpecifier) Includes(other PartSpecifier) bool {
 	return p&other != 0
 }
 
-func (uc *Usecase) FetchByIDs(ctx context.Context,
-	ids []ulid.ULID,
+func (uc *Usecase) FetchByIDs(
+	ctx context.Context, ids []ulid.ULID,
+	partial message.PartialMsgMask,
 ) ([]message.Msg, error) {
 	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.FetchByIDs").End()
 
-	msgs, err := uc.msgRepo.GetByIDs(ctx, folder.ModSeq(0), ids...)
+	msgs, err := uc.msgRepo.GetByIDs(ctx, folder.ModSeq(0), partial, ids...)
 	if err != nil {
 		return nil, fmt.Errorf("GetByIDs: %w", err)
 	}
@@ -53,9 +54,10 @@ func (uc *Usecase) FetchByIDs(ctx context.Context,
 	return msgs, nil
 }
 
-func (uc *Usecase) Fetch(ctx context.Context,
-	accountID, folderID ulid.ULID,
+func (uc *Usecase) Fetch(
+	ctx context.Context, accountID, folderID ulid.ULID,
 	ids folder.Range, modSeqGt folder.ModSeq, returnSeq bool,
+	partial message.PartialMsgMask,
 ) ([]FetchedMessage, error) {
 	defer trace.StartRegion(ctx, "maddy-storage/message.usecase.Fetch").End()
 
@@ -82,7 +84,7 @@ func (uc *Usecase) Fetch(ctx context.Context,
 		msgIDs = append(msgIDs, ent.MsgID)
 	}
 
-	msgs, err := uc.msgRepo.GetByIDs(ctx, modSeqGt, msgIDs...)
+	msgs, err := uc.msgRepo.GetByIDs(ctx, modSeqGt, partial, msgIDs...)
 	if err != nil {
 		return nil, fmt.Errorf("GetByIDs: %w", err)
 	}
