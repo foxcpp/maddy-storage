@@ -12,10 +12,14 @@ import (
 	"github.com/emersion/go-message/textproto"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/message"
+	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/foxcpp/maddy-storage/internal/pkg/mimeutils"
 	"github.com/foxcpp/maddy-storage/internal/pkg/storeerrors"
 	"github.com/oklog/ulid/v2"
+	"go.uber.org/zap"
 )
+
+var ErrDangingFolderEntry = errors.New("message: some folder entries have no associated message available")
 
 type FetchedMessage struct {
 	Msg   message.Msg
@@ -67,6 +71,13 @@ func (uc *Usecase) Fetch(ctx context.Context,
 	entByMsgID := make(map[ulid.ULID]folder.Entry, len(entries))
 	msgIDs := make([]ulid.ULID, 0, len(entries))
 	for _, ent := range entries {
+		if ent.MsgID.IsZero() {
+			contextlib.Logger(ctx).Info("folder entry without MsgID returned",
+				zap.Stringer("folder_id", folderID),
+				zap.Uint32("uid", ent.IMAPUID),
+			)
+			return nil, ErrDangingFolderEntry
+		}
 		entByMsgID[ent.MsgID] = ent
 		msgIDs = append(msgIDs, ent.MsgID)
 	}

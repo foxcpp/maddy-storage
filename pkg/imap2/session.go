@@ -27,6 +27,9 @@ type selectedMbox struct {
 	CondStoreActive   bool
 	SavedSearchResult imap.UIDSet
 
+	UsedFlags    []string
+	UsedFlagsMap map[string]struct{}
+
 	SkipExpunges        map[uint32]struct{}
 	SkipFlagUpdateUntil map[uint32]folder.ModSeq
 }

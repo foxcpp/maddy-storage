@@ -77,6 +77,7 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 		return s.asIMAPError(err)
 	}
 
+	hasNewFlags := false
 	for _, upd := range upds {
 		needUpdate := false
 		if upd.PreviousAt > s.mbox.At {
@@ -93,7 +94,8 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 
 		// Prevent Poll, Idle from duplicating our update
 		// TODO: Consider just always sending UID and relying on
-		// Poll to generate updates.
+		// Poll to generate updates. This will reduce duplicated code
+		// including flag update handling.
 		s.mbox.SkipFlagUpdateUntil[upd.UID] = upd.At
 
 		msgW := w.CreateMessage(upd.Seq)
@@ -105,6 +107,18 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 		if err := msgW.Close(); err != nil {
 			return s.asIMAPError(err)
 		}
+
+		for _, flag := range upd.Flags {
+			if _, alreadyUsed := s.mbox.UsedFlagsMap[flag]; !alreadyUsed {
+				s.mbox.UsedFlagsMap[flag] = struct{}{}
+				s.mbox.UsedFlags = append(s.mbox.UsedFlags, flag)
+				hasNewFlags = true
+			}
+		}
+	}
+
+	if hasNewFlags {
+		// TODO(go-imap): needs a way to write FLAGS update.
 	}
 
 	return nil

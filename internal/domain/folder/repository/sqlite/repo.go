@@ -793,11 +793,12 @@ func (r repo) DeleteEntryByRange(ctx context.Context, folderID ulid.ULID, ranges
 func (r repo) UsedFlags(ctx context.Context, folderID ulid.ULID) ([]string, error) {
 	var rows []struct{ Flag string }
 
-	stmt := j.SELECT(table.MessageFlags.Flag.AS("flag")).
+	stmt := j.SELECT(table.MessageFlags.Flag.AS("flag")).DISTINCT().
 		FROM(table.FolderEntries.INNER_JOIN(table.MessageFlags,
 			table.FolderEntries.MessageID.EQ(table.MessageFlags.MessageID))).
 		WHERE(table.FolderEntries.FolderID.EQ(sqlite.ULID(folderID)).
-			AND(table.FolderEntries.DeletedAt.IS_NULL()))
+			AND(table.FolderEntries.DeletedAt.IS_NULL())).
+		ORDER_BY(table.FolderEntries.CreatedAt)
 	if err := r.executor.Query(ctx, stmt, &rows); err != nil {
 		return nil, fmt.Errorf("failed to fetch used flags for folder %v: %w", folderID, err)
 	}

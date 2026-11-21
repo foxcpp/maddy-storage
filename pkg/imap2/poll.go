@@ -13,6 +13,7 @@ import (
 	"github.com/foxcpp/maddy-storage/internal/domain/folder"
 	"github.com/foxcpp/maddy-storage/internal/domain/folder/recent"
 	"github.com/foxcpp/maddy-storage/internal/domain/message/searcher"
+	messageusecase "github.com/foxcpp/maddy-storage/internal/domain/message/usecase"
 	"github.com/foxcpp/maddy-storage/internal/pkg/contextlib"
 	"github.com/oklog/ulid/v2"
 	"go.uber.org/zap"
@@ -159,6 +160,11 @@ func (s *session) applyOtherUpdates(ctx context.Context, w *imapserver.UpdateWri
 		if err != nil {
 			return fmt.Errorf("failed to fetch changes: %w", err)
 		}
+
+		if err := s.updateUsedFlags(ctx, w, fetched); err != nil {
+			return fmt.Errorf("failed to update used flags: %w", err)
+		}
+
 		for _, msg := range fetched {
 			err := w.WriteMessageFlags(msg.Entry.SeqNum, imap.UID(msg.Entry.IMAPUID), stringListAsFlags(msg.Msg.Flags))
 			if err != nil {
@@ -170,6 +176,33 @@ func (s *session) applyOtherUpdates(ctx context.Context, w *imapserver.UpdateWri
 	s.mbox.MaxUID = newMaxUID
 	s.mbox.At = newAt
 	s.mbox.SkipFlagUpdateUntil = map[uint32]folder.ModSeq{}
+
+	return nil
+}
+
+func (s *session) updateUsedFlags(ctx context.Context, w *imapserver.UpdateWriter, from []messageusecase.FetchedMessage) error {
+	hasNewFlags := false
+
+	for _, msg := range from {
+		for _, flag := range msg.Msg.Flags {
+			_, alreadyUsed := s.mbox.UsedFlagsMap[flag]
+			if !alreadyUsed {
+				s.mbox.UsedFlags = append(s.mbox.UsedFlags, flag)
+				s.mbox.UsedFlagsMap[flag] = struct{}{}
+				hasNewFlags = true
+			}
+		}
+	}
+
+	// As an optimization, we never check for removed flags
+	// that would require running a search for each flag in usedFlags separately.
+	// while RFC doesn't prohibit having stale flags there.
+
+	if hasNewFlags {
+		if err := w.WriteMailboxFlags(stringListAsFlags(s.mbox.UsedFlags)); err != nil {
+			return fmt.Errorf("failed to write updated flags: %w", err)
+		}
+	}
 
 	return nil
 }

@@ -47,14 +47,16 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 	if err != nil {
 		return nil, s.asIMAPError(err)
 	}
-	usedFlagsMap := make(map[string]bool, len(info.UsedFlags))
-	for _, val := range info.UsedFlags {
-		usedFlagsMap[val] = true
-	}
+
+	folderFlags := make([]string, 0, len(predefinedFlags)+len(info.UsedFlags))
+	usedFlagsMap := make(map[string]struct{}, len(info.UsedFlags))
 	for _, flag := range predefinedFlags {
-		if !usedFlagsMap[string(flag)] {
-			info.UsedFlags = append(info.UsedFlags, string(flag))
-		}
+		folderFlags = append(folderFlags, string(flag))
+		usedFlagsMap[string(flag)] = struct{}{}
+	}
+	for _, val := range info.UsedFlags {
+		folderFlags = append(folderFlags, val)
+		usedFlagsMap[val] = struct{}{}
 	}
 
 	var recents recent.Set
@@ -79,6 +81,8 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 		ReadOnly:          options.ReadOnly,
 		CondStoreActive:   options.CondStore,
 		SavedSearchResult: imap.UIDSetNum(),
+		UsedFlags:         folderFlags,
+		UsedFlagsMap:      usedFlagsMap,
 
 		SkipExpunges:        map[uint32]struct{}{},
 		SkipFlagUpdateUntil: map[uint32]folder.ModSeq{},
@@ -93,8 +97,8 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 	// TODO: Use read-only flag for optimizations.
 
 	return &imap.SelectData{
-		Flags:          stringListAsFlags(info.UsedFlags),
-		PermanentFlags: stringListAsFlags(append(info.UsedFlags, `\*`)),
+		Flags:          stringListAsFlags(folderFlags),
+		PermanentFlags: stringListAsFlags(append(folderFlags, `\*`)),
 		NumMessages:    info.Msgs,
 		NumRecent:      uint32(recents.Len()),
 		UIDNext:        imap.UID(info.IMAP.UIDNext),
