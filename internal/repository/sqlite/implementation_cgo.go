@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo && !no_sqlite && !turso
 
 package sqlite
 

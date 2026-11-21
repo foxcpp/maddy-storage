@@ -22,7 +22,9 @@ type DB struct {
 type ImplementationType string
 
 const (
+	ImplementationNone    ImplementationType = ""        // no default implementation
 	ImplementationCGo     ImplementationType = "cgo"     // github.com/mattn/go-sqlite3
+	ImplementationTurso   ImplementationType = "turso"   // turso.tech/database/tursogo
 	ImplementationModernc ImplementationType = "modernc" // modernc.org/sqlite
 )
 

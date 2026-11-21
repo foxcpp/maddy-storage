@@ -71,3 +71,48 @@ m2 body
 	}
 	c.ExpectOK()
 }
+
+func TestFetchEnvelopePreservesDateTimezone(t *testing.T) {
+	const messageTemplate = `Message-ID: <same@example.org>
+Date: %s
+From: user@example.org
+Subject: Same message ID
+
+body
+`
+
+	s := utils.TestServer(t)
+	s.Run()
+	defer s.Close()
+
+	username, password := s.Account()
+	c := s.Conn()
+	defer c.Close()
+	c.ExpectPattern(`\* *`)
+	c.Login(username, password)
+
+	for _, date := range []string{
+		"Tue, 27 Jun 2006 07:43:34 -0300",
+		"Tue, 27 Jun 2006 10:43:50 +0000",
+	} {
+		msg := utils.CRLF(fmt.Sprintf(messageTemplate, date))
+		c.Writeln(fmt.Sprintf(". APPEND INBOX {%d+}", len(msg)))
+		c.Writeln(msg)
+		c.ExpectOK()
+	}
+
+	c.Writeln(". SELECT INBOX")
+	c.Expect("* 2 EXISTS")
+	c.Expect("* 2 RECENT")
+	c.ExpectPattern(`\* OK \[UIDVALIDITY *\] *`)
+	c.Expect("* OK [UIDNEXT 3] Predicted next UID")
+	c.ExpectPattern(`\* FLAGS (*)`)
+	c.ExpectPattern(`\* OK \[PERMANENTFLAGS (*)\] *`)
+	c.Expect(`* LIST () "/" INBOX`)
+	c.ExpectOK()
+
+	c.Writeln(". FETCH 1:2 (ENVELOPE)")
+	c.ExpectPattern(`* 1 FETCH (ENVELOPE ("Tue, 27 Jun 2006 07:43:34 -0300" *`)
+	c.ExpectPattern(`* 2 FETCH (ENVELOPE ("Tue, 27 Jun 2006 10:43:50 +0000" *`)
+	c.ExpectOK()
+}

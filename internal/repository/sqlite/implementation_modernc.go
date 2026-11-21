@@ -1,4 +1,4 @@
-//go:build !cgo || modernc
+//go:build (!cgo || modernc) && !no_sqlite && !turso
 
 // 'modernc' is the same as used by maddy.
 
